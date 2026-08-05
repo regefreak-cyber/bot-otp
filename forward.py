@@ -73,6 +73,7 @@ async def send_to_group(bot, entry):
     
     text = f"{flag} <b>#{iso} {app_emoji}{service} {masked}</b> <tg-emoji emoji-id=\"5264919878082509254\">▶️</tg-emoji>"
     
+    # Tombol OTP (Row 1)
     if CopyTextButton:
         try:
             row1 = [InlineKeyboardButton(text=f"{otp}", copy_text=CopyTextButton(text=otp), icon_custom_emoji_id="6176966310920983412")]
@@ -81,13 +82,13 @@ async def send_to_group(bot, entry):
     else:
         row1 = [InlineKeyboardButton(text=f"🔑 {otp}", callback_data="noop")]
         
+    # Tombol Channel Aja (Row 2)
     row2 = [
-        InlineKeyboardButton(text="Methods", url="https://youtube.com/@xclusor", icon_custom_emoji_id="5807797645443340724"),
-        InlineKeyboardButton(text="Channel", url="https://whatsapp.com/channel/0029VbC0kzIEFeXq9XLgHZ3y", icon_custom_emoji_id="5429571366384842791")
+        InlineKeyboardButton(text="Channel", url="https://t.me/matchaappp", icon_custom_emoji_id="5429571366384842791")
     ]
-    row3 = [InlineKeyboardButton(text="OTP Panel", url="https://t.me/XclusoRPanelBot", icon_custom_emoji_id="5372917041193828849")]
     
-    markup = InlineKeyboardMarkup([row1, row2, row3])
+    # Gabungin cuma 2 row
+    markup = InlineKeyboardMarkup([row1, row2])
     
     try:
         await bot.send_message(
@@ -100,7 +101,7 @@ async def send_to_group(bot, entry):
         print(f"✅ Sent OTP for {num} - {service}")
     except Exception as e:
         print(f"❌ Failed to send to group: {e}")
-
+        
 async def main():
     bot = Bot(token=BOT_TOKEN)
     seen_otps = set()
