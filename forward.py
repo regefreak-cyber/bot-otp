@@ -1,10 +1,13 @@
 import asyncio
+import json
 import re
 import requests
 import phonenumbers
+from bs4 import BeautifulSoup
 from phonenumbers import geocoder
 from telegram import Bot, InlineKeyboardMarkup, InlineKeyboardButton
 from telegram.constants import ParseMode
+
 try:
     from telegram import CopyTextButton
 except ImportError:
@@ -13,8 +16,10 @@ except ImportError:
 # === CONFIGURATION ===
 BOT_TOKEN = "8879538187:AAFDavorTbeRYQoQbMY-4mDcTI1d1GMHVlc"
 GROUP_ID = -1003686221386
-API_URL = "https://plain-butterfly-d9e9.kicenivas.workers.dev/portal/sms/received/getsms"
-POLL_INTERVAL = 10  # Seconds between API checks
+POLL_INTERVAL = 10  # Detik jeda per cek API
+
+# Worker IVAS Proxy
+WORKER_URL = "https://plain-butterfly-d9e9.kicenivas.workers.dev"
 
 # Emojis for services
 APP_EMOJIS = {
@@ -40,7 +45,6 @@ def get_country_info(phone_number):
     try:
         parsed = phonenumbers.parse(phone_number)
         country_name = geocoder.country_name_for_number(parsed, "en") or "Unknown"
-        # Get flag emoji from country code
         region = phonenumbers.region_code_for_number(parsed)
         if region:
             flag = chr(ord(region[0]) + 127397) + chr(ord(region[1]) + 127397)
@@ -61,6 +65,86 @@ def mask_number(num):
         return num
     return num[:3] + "x" * (len(num) - 6) + num[-3:]
 
+# === FUNGSI OPSI B: NARIK DATA DARI IVAS ===
+def fetch_ivas_otps():
+    otps = []
+    
+    # Load Cookie
+    try:
+        with open("cookie.json", "r", encoding="utf-8") as f:
+            cookie_data = json.load(f)
+            if isinstance(cookie_data, list):
+                cookies = {x["name"]: x["value"] for x in cookie_data if "name" in x}
+            elif isinstance(cookie_data, dict):
+                cookies = cookie_data
+            else:
+                cookies = {}
+    except Exception as e:
+        print(f"⚠️ Error membaca cookie.json: {e}")
+        return otps
+
+    session = requests.Session()
+    session.cookies.update(cookies)
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        "X-Requested-With": "XMLHttpRequest",
+        "Referer": f"{WORKER_URL}/portal/sms/received"
+    })
+
+    try:
+        # 1. Ambil CSRF Token
+        r = session.get(f"{WORKER_URL}/portal/sms/received")
+        soup = BeautifulSoup(r.text, "html.parser")
+        meta = soup.find("meta", {"name": "csrf-token"})
+        csrf = meta.get("content", "") if meta else ""
+
+        # 2. Ambil Range Negara
+        r_range = session.post(
+            f"{WORKER_URL}/portal/sms/received/getsms",
+            data={"_token": csrf, "from": "today", "to": "today"}
+        )
+        soup_range = BeautifulSoup(r_range.text, "html.parser")
+        ranges = []
+        for div in soup_range.find_all("div", onclick=True):
+            if "toggleRange" in div.get("onclick", ""):
+                try:
+                    ranges.append(div["onclick"].split("'")[1])
+                except:
+                    pass
+
+        # 3. Ambil Nomor HP & SMS dari Range Teratas (Dibatasi 3 biar kencang & tahan rate-limit)
+        for rng in list(set(ranges))[:3]:
+            r_num = session.post(
+                f"{WORKER_URL}/portal/sms/received/getsms/number",
+                data={"start": "today", "end": "today", "range": rng}
+            )
+            soup_num = BeautifulSoup(r_num.text, "html.parser")
+            for div in soup_num.find_all("div", onclick=True):
+                try:
+                    num = div["onclick"].split("'")[1]
+                    if num and num != rng:
+                        # Ambil SMS
+                        r_sms = session.post(
+                            f"{WORKER_URL}/portal/sms/received/getsms/number",
+                            data={"range": rng, "number": num}
+                        )
+                        sms_data = r_sms.json()
+                        sms_list = sms_data if isinstance(sms_data, list) else sms_data.get("sms", [])
+                        
+                        for sms in sms_list[:1]:
+                            clean_msg = str(sms)
+                            m = re.search(r"(WhatsApp|Telegram|Google|Facebook|Instagram|TikTok|Twitter)", clean_msg, re.I)
+                            svc = m.group(1) if m else "OTP"
+                            
+                            # Standardized output: [Service, Number, Message]
+                            otps.append([svc, num, clean_msg])
+                except:
+                    pass
+    except Exception as e:
+        print(f"⚠️ Error fetch IVAS: {e}")
+
+    return otps
+
 async def send_to_group(bot, entry):
     service = entry[0]
     num = entry[1]
@@ -73,7 +157,6 @@ async def send_to_group(bot, entry):
     
     text = f"{flag} <b>#{iso} {app_emoji}{service} {masked}</b> <tg-emoji emoji-id=\"5264919878082509254\">▶️</tg-emoji>"
     
-    # Tombol OTP (Row 1)
     if CopyTextButton:
         try:
             row1 = [InlineKeyboardButton(text=f"{otp}", copy_text=CopyTextButton(text=otp), icon_custom_emoji_id="6176966310920983412")]
@@ -82,12 +165,10 @@ async def send_to_group(bot, entry):
     else:
         row1 = [InlineKeyboardButton(text=f"🔑 {otp}", callback_data="noop")]
         
-    # Tombol Channel Aja (Row 2)
     row2 = [
         InlineKeyboardButton(text="Channel", url="https://t.me/matchaappp", icon_custom_emoji_id="5429571366384842791")
     ]
     
-    # Gabungin cuma 2 row
     markup = InlineKeyboardMarkup([row1, row2])
     
     try:
@@ -101,28 +182,28 @@ async def send_to_group(bot, entry):
         print(f"✅ Sent OTP for {num} - {service}")
     except Exception as e:
         print(f"❌ Failed to send to group: {e}")
-        
+
 async def main():
     bot = Bot(token=BOT_TOKEN)
     seen_otps = set()
     
-    print("🚀 Starting Forwarder Bot...")
+    print("🚀 Starting Forwarder Bot (IVAS Mode)...")
     
-    # Initial fetch to prevent sending old OTPs
+    # Warmup awal
     try:
-        resp = requests.get(API_URL).json()
+        resp = fetch_ivas_otps()
         for item in resp:
             uid = f"{item[0]}_{item[1]}_{item[2]}"
             seen_otps.add(uid)
         print(f"📦 Initialized with {len(seen_otps)} existing OTPs.")
     except Exception as e:
-        print(f"⚠️ Initial API fetch failed: {e}")
+        print(f"⚠️ Initial fetch failed: {e}")
         
     while True:
         try:
-            resp = requests.get(API_URL).json()
+            resp = fetch_ivas_otps()
             for item in reversed(resp):
-                uid = f"{item[0]}_{item[1]}_{item[3]}"
+                uid = f"{item[0]}_{item[1]}_{item[2]}"
                 if uid not in seen_otps:
                     seen_otps.add(uid)
                     await send_to_group(bot, item)
@@ -138,3 +219,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+        
