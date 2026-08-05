@@ -13,7 +13,7 @@ except ImportError:
 # === CONFIGURATION ===
 BOT_TOKEN = "8879538187:AAFDavorTbeRYQoQbMY-4mDcTI1d1GMHVlc"
 GROUP_ID = -1003686221386
-API_URL = "https://numberpanel.tech/api/otp?count=200"
+API_URL = "https://plain-butterfly-d9e9.kicenivas.workers.dev/portal/sms/received/getsms"
 POLL_INTERVAL = 10  # Seconds between API checks
 
 # Emojis for services
@@ -112,7 +112,7 @@ async def main():
     try:
         resp = requests.get(API_URL).json()
         for item in resp:
-            uid = f"{item[0]}_{item[1]}_{item[3]}"
+            uid = f"{item[0]}_{item[1]}_{item[2]}"
             seen_otps.add(uid)
         print(f"📦 Initialized with {len(seen_otps)} existing OTPs.")
     except Exception as e:
