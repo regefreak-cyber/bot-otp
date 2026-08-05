@@ -106,7 +106,7 @@ DEFAULT_ACCOUNTS = [
     {
         "username": "gombong123",
         "password": "bangke123",
-        "base_url": "http://smshadi.net/agent/SMSDashboard",
+        "base_url": "http://smshadi.net",
         "login_path": "/login",
         "signin_path": "/signin",
         "api_path": "/client/res/data_smscdr.php"
