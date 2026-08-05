@@ -119,9 +119,7 @@ DEFAULT_ACCOUNTS = [
         "signin_path": "/signin",
         "api_path": "/client/res/data_smscdr.php"
      },   
-     {
-     
-]
+    
 #  --- Default Channel Configuration ---
 DEFAULT_MAIN_CHANNEL = 'https://t.me/matchaappp'
 DEFAULT_BACKUP_CHANNEL = '-1003686221386'
