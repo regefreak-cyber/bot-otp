@@ -1,1 +1,41 @@
-
+[
+    {
+        "domain": ".ivasms.com",
+        "expirationDate": 1793699911,
+        "hostOnly": false,
+        "httpOnly": false,
+        "name": "_fbp",
+        "path": "/",
+        "sameSite": "lax",
+        "secure": false,
+        "session": false,
+        "storeId": null,
+        "value": "fb.1.1785273594874.610941042431760486"
+    },
+    {
+        "domain": "www.ivasms.com",
+        "expirationDate": 1785931111.698075,
+        "hostOnly": true,
+        "httpOnly": false,
+        "name": "XSRF-TOKEN",
+        "path": "/",
+        "sameSite": "lax",
+        "secure": false,
+        "session": false,
+        "storeId": null,
+        "value": "eyJpdiI6IjZWenJZNmR3TlRqSlR5S0JzV085NWc9PSIsInZhbHVlIjoiVkFYRWtlZGRRaW1oRzFTcXBVVHdmVVBRcW1keG5MdTF1NldEem4rSUFwaGRpWjBMY2pEeU1YRjBiNHJQZzRpSzZObGlKR2FSOElGT1lXWXdKbGVUU0E4OWhZeTRDaUUwVUdLbFUxWUIvUlNOTnlJblovTmJjZGVLRGJ5bmNZb2UiLCJtYWMiOiJmZTk4Nzg2YzUyOTA1ZDA1Y2UzYTVmNTZmYTQwM2FjNGI3NjNlNGMyYzRmNDYwZmI4MDFjMjA1Y2Y5NWZiZDQ3IiwidGFnIjoiIn0%3D"
+    },
+    {
+        "domain": "www.ivasms.com",
+        "expirationDate": 1785931111.698315,
+        "hostOnly": true,
+        "httpOnly": true,
+        "name": "ivas_sms_session",
+        "path": "/",
+        "sameSite": "lax",
+        "secure": false,
+        "session": false,
+        "storeId": null,
+        "value": "eyJpdiI6IldaSnoyNjhyWU5NMHZBelN3QjJ0cmc9PSIsInZhbHVlIjoidTFaWEFRUjhRRDdxYTQ1WlBmckVSY24zSmlwY3VicVdoWU5vVjZFcTE2bW5rS014V2JSOUlQVkp1Rkh4eHRiTWE0UERXV3hlY0FCdEY5ZDlGWmwyZXIwK1lKVitBU0F3WDQzTzlidWI3NnduaWVzQVAwT0VCc3dUTDZRdGtaNy8iLCJtYWMiOiIzZTI0Y2ZkZTMyNDhmMmY5N2Y2YTA5Mjk1Y2IwM2UwYjE4MTEzMmYxY2E4YTg0NmNiZWE2NTRmNTcxZjdlNzI0IiwidGFnIjoiIn0%3D"
+    }
+]
