@@ -104,9 +104,9 @@ def get_premium_flag(flag_emoji: str) -> str:
 # --- Multiple Account
 DEFAULT_ACCOUNTS = [
     {
-        "username": "akunclient",
-        "password": "akunclient",
-        "base_url": "http://139.99.9.4/ints",
+        "username": "gombong123",
+        "password": "bangke123",
+        "base_url": "http://smshadi.net/agent/SMSDashboard",
         "login_path": "/login",
         "signin_path": "/signin",
         "api_path": "/client/res/data_smscdr.php"
