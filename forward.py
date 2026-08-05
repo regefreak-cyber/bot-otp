@@ -70,21 +70,24 @@ def fetch_ivas_otps():
     otps = []
     
     # Load Cookie
+        session = requests.Session()
+    
+    # BACA DAN PAKSA PASANG COOKIE
     try:
         with open("cookie.json", "r", encoding="utf-8") as f:
             cookie_data = json.load(f)
             if isinstance(cookie_data, list):
-                cookies = {x["name"]: x["value"] for x in cookie_data if "name" in x}
+                for item in cookie_data:
+                    if "name" in item and "value" in item:
+                        # Paksa set cookie ke session tanpa memedulikan domain
+                        session.cookies.set(item["name"], item["value"])
             elif isinstance(cookie_data, dict):
-                cookies = cookie_data
-            else:
-                cookies = {}
+                for k, v in cookie_data.items():
+                    session.cookies.set(k, v)
     except Exception as e:
         print(f"⚠️ Error membaca cookie.json: {e}")
         return otps
-
-    session = requests.Session()
-    session.cookies.update(cookies)
+        
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "X-Requested-With": "XMLHttpRequest",
