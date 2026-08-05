@@ -109,7 +109,7 @@ DEFAULT_ACCOUNTS = [
         "base_url": "http://smshadi.net",
         "login_path": "/login",
         "signin_path": "/signin",
-        "api_path": "/client/res/data_smscdr.php"
+        "api_path": "/agent/res/data_smscdr.php"
     },
     {
         "username": "akunclient",
