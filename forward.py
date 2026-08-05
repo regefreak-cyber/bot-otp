@@ -68,10 +68,8 @@ def mask_number(num):
 # === FUNGSI OPSI B: NARIK DATA DARI IVAS ===
 def fetch_ivas_otps():
     otps = []
-    
-    # Load Cookie
-        session = requests.Session()
-    
+    session = requests.Session()
+
     # BACA DAN PAKSA PASANG COOKIE
     try:
         with open("cookie.json", "r", encoding="utf-8") as f:
@@ -79,7 +77,6 @@ def fetch_ivas_otps():
             if isinstance(cookie_data, list):
                 for item in cookie_data:
                     if "name" in item and "value" in item:
-                        # Paksa set cookie ke session tanpa memedulikan domain
                         session.cookies.set(item["name"], item["value"])
             elif isinstance(cookie_data, dict):
                 for k, v in cookie_data.items():
@@ -87,7 +84,7 @@ def fetch_ivas_otps():
     except Exception as e:
         print(f"⚠️ Error membaca cookie.json: {e}")
         return otps
-        
+
     session.headers.update({
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
         "X-Requested-With": "XMLHttpRequest",
@@ -112,10 +109,10 @@ def fetch_ivas_otps():
             if "toggleRange" in div.get("onclick", ""):
                 try:
                     ranges.append(div["onclick"].split("'")[1])
-                except:
+                except Exception:
                     pass
 
-        # 3. Ambil Nomor HP & SMS dari Range Teratas (Dibatasi 3 biar kencang & tahan rate-limit)
+        # 3. Ambil Nomor HP & SMS
         for rng in list(set(ranges))[:3]:
             r_num = session.post(
                 f"{WORKER_URL}/portal/sms/received/getsms/number",
@@ -126,7 +123,6 @@ def fetch_ivas_otps():
                 try:
                     num = div["onclick"].split("'")[1]
                     if num and num != rng:
-                        # Ambil SMS
                         r_sms = session.post(
                             f"{WORKER_URL}/portal/sms/received/getsms/number",
                             data={"range": rng, "number": num}
@@ -138,16 +134,14 @@ def fetch_ivas_otps():
                             clean_msg = str(sms)
                             m = re.search(r"(WhatsApp|Telegram|Google|Facebook|Instagram|TikTok|Twitter)", clean_msg, re.I)
                             svc = m.group(1) if m else "OTP"
-                            
-                            # Standardized output: [Service, Number, Message]
                             otps.append([svc, num, clean_msg])
-                except:
+                except Exception:
                     pass
     except Exception as e:
         print(f"⚠️ Error fetch IVAS: {e}")
 
     return otps
-
+                            
 async def send_to_group(bot, entry):
     service = entry[0]
     num = entry[1]
