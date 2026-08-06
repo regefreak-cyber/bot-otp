@@ -1,9 +1,5 @@
-python-telegram-bot==22.7
-requests
 httpx
 beautifulsoup4
-openpyxl
-PyPDF2
-langdetect
-pandas
-curl_cffi
+phonenumbers
+colorama
+requests
