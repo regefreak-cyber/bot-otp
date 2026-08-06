@@ -240,32 +240,36 @@ async def ivas_monitoring_task(app):
     if IVAS_SESSION_CLIENT is None:
         IVAS_SESSION_CLIENT = httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers=headers)
 
-    while True:
+        while True:
         try:
-         logger.info("Connecting to IVAS Login...")
+            logger.info("Connecting to IVAS Login...")
             resp = await IVAS_SESSION_CLIENT.get(IVAS_LOGIN_URL)
-            
-            # 1. Cek status response web
             logger.info(f"Response Status: {resp.status_code}")
             
             token = extract_csrf_token(resp.text)
-            
             if not token:
-                # 2. Kasih log kalau token gak ketemu
-                logger.error("Gagal dapet CSRF Token! Cek apakah IP diblokir atau HTML berubah.")
+                logger.error("Gagal dapet CSRF Token!")
                 await asyncio.sleep(10)
                 continue
 
             logger.info(f"CSRF Token dapet: {token[:10]}...")
-                
 
+            # --- [TAMBAHKAN BAGIAN INI: PROSES KIRIM USERNAME & PASSWORD] ---
+            login_payload = {
+                "username": IVAS_USERNAME,
+                "password": IVAS_PASSWORD,
+                "_token": token  # Sesuaikan nama key token jika beda (misal: 'csrf_token')
+            }
+
+            login_resp = await IVAS_SESSION_CLIENT.post(IVAS_LOGIN_URL, data=login_payload)
+            logger.info(f"Login Status Code: {login_resp.status_code}")
+            logger.info("Login successful, fetching dashboard...")
+            # -----------------------------------------------------------------
+
+            # Setelah berhasil login, barulah masuk ke loop narik SMS
             while True:
-                messages = await ivas_fetch_sms(IVAS_SESSION_CLIENT, headers, csrf_token)
+                messages = await ivas_fetch_sms(IVAS_SESSION_CLIENT, headers, ...)
                 
-                for msg in reversed(messages):
-                    sms_id = msg.get("id")
-                    if sms_id in PROCESSED_IDS:
-                        continue
                     
                     num = msg.get('number')
                     sms = msg.get('full_sms')
