@@ -307,18 +307,23 @@ async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # ---- Main Entry Point ----
+async def post_init(application):
+    asyncio.create_task(ivas_monitoring_task(application))
+    
 def main():
     init_db()
-    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app = (
+        ApplicationBuilder()
+        .token(BOT_TOKEN)
+        .post_init(post_init)
+        .build()
+    )
 
     app.add_handler(CommandHandler("start", start_cmd))
-
-    # Run IVAS monitoring in background loop
-    loop = asyncio.get_event_loop()
-    loop.create_task(ivas_monitoring_task(app))
 
     logger.info("Bot IVAS running...")
     app.run_polling()
 
 if __name__ == "__main__":
     main()
+    
