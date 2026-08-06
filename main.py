@@ -242,25 +242,22 @@ async def ivas_monitoring_task(app):
 
     while True:
         try:
-            logger.info("Connecting to IVAS Login...")
+         logger.info("Connecting to IVAS Login...")
             resp = await IVAS_SESSION_CLIENT.get(IVAS_LOGIN_URL)
+            
+            # 1. Cek status response web
+            logger.info(f"Response Status: {resp.status_code}")
+            
             token = extract_csrf_token(resp.text)
             
             if not token:
+                # 2. Kasih log kalau token gak ketemu
+                logger.error("Gagal dapet CSRF Token! Cek apakah IP diblokir atau HTML berubah.")
                 await asyncio.sleep(10)
                 continue
 
-            login_resp = await IVAS_SESSION_CLIENT.post(IVAS_LOGIN_URL, data={
-                'email': IVAS_EMAIL, 'password': IVAS_PASSWORD, '_token': token
-            })
-
-            if "login" in str(login_resp.url).lower():
-                logger.warning("IVAS Authentication Failed! Retrying in 30s...")
-                await asyncio.sleep(30)
-                continue
-
-            csrf_token = extract_csrf_token(login_resp.text) or extract_csrf_token((await IVAS_SESSION_CLIENT.get(IVAS_BASE_URL)).text)
-            logger.info("IVAS Session authenticated successfully!")
+            logger.info(f"CSRF Token dapet: {token[:10]}...")
+                
 
             while True:
                 messages = await ivas_fetch_sms(IVAS_SESSION_CLIENT, headers, csrf_token)
