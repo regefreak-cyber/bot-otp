@@ -3,3 +3,4 @@ beautifulsoup4
 phonenumbers
 colorama
 requests
+curl_cffi
