@@ -43,7 +43,7 @@ COOKIE_FILE        = "cookie.json"
 CACHE_FILE         = "file/sent_cache.json"
 GROUPS_FILE        = "file/groups.json"     # daftar grup tambahan via /addbot
 MAX_CACHE          = 2000
-POLL_INTERVAL_MAX  = 3.0    # detik — jeda maks saat tidak ada OTP baru
+POLL_INTERVAL_MAX  = 6.0    # detik — dinaikkan sedikit agar tidak spam request
 KEEPALIVE_INTERVAL = 480    # detik — ping /portal tiap 8 menit
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -91,6 +91,7 @@ WORKER_POOL = [
 _worker_lock          = threading.Lock()
 _active_worker_idx    = 0
 _worker_limited_until = {}
+_last_log_limit_time  = 0
 WORKER_LIMIT_COOLDOWN = 900   # 15 menit
 
 def get_base():
@@ -98,8 +99,9 @@ def get_base():
         return WORKER_POOL[_active_worker_idx % len(WORKER_POOL)]
 
 def mark_worker_limited(url):
-    global _active_worker_idx
+    global _active_worker_idx, _last_log_limit_time
     now = time.time()
+    should_log = False
     with _worker_lock:
         _worker_limited_until[url] = now + WORKER_LIMIT_COOLDOWN
         for i in range(1, len(WORKER_POOL) + 1):
@@ -107,7 +109,13 @@ def mark_worker_limited(url):
             if _worker_limited_until.get(WORKER_POOL[idx], 0) < now:
                 _active_worker_idx = idx
                 break
-    _log("WORKER", f"rate-limited → pindah ke {get_base()}", Fore.YELLOW)
+        if now - _last_log_limit_time > 3.0:
+            _last_log_limit_time = now
+            should_log = True
+
+    if should_log:
+        _log("WORKER", f"rate-limited → pindah ke {get_base()}", Fore.YELLOW)
+    time.sleep(1.0)
 
 _RATE_LIMIT_MARKERS = (
     "temporarily rate limited", "error 1027", "please check back later",
@@ -119,24 +127,14 @@ def is_worker_blocked(resp) -> bool:
     if resp is None:
         return False
     try:
-        if resp.status_code == 429:
+        if resp.status_code in (429, 503):
             return True
         sample = resp.text[:2000].lower()
         return any(m in sample for m in _RATE_LIMIT_MARKERS)
     except:
         return False
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# COOKIE LOADING
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def load_cookies():
-    """
-    Format yang didukung:
-      1. [{"name":"k","value":"v"}, ...]          — array browser export
-      2. {"email": {"laravel_session": "x"}, ...} — multi-akun per email
-      3. {"laravel_session": "x", ...}            — flat single akun
-    Return: list of cookie-dict (satu dict per akun).
-    """
     if not os.path.exists(COOKIE_FILE):
         _log("COOKIE", f"{COOKIE_FILE} tidak ditemukan!", Fore.RED)
         return []
@@ -157,9 +155,6 @@ def load_cookies():
         _log("COOKIE", f"error load {COOKIE_FILE}: {e}", Fore.RED)
     return []
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# HTTPX SESSION
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def make_session(cookies: dict, timeout=30):
     hdrs = {
         "User-Agent":       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
@@ -172,14 +167,11 @@ def make_session(cookies: dict, timeout=30):
         follow_redirects=True,
         timeout=timeout,
         headers=hdrs,
-        limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
+        limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
     )
     s.cookies.update(cookies)
     return s
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# CSRF CACHE  (per-akun, TTL 15 menit)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 _recv_csrf_cache = {}
 RECV_CSRF_TTL    = 900
 
@@ -350,7 +342,7 @@ def get_sms(acc, rng, number, _retry=0):
     return list(dict.fromkeys(sms_texts))
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# PLATFORM DETECTION  (emoji + nama lengkap)
+# PLATFORM DETECTION
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SERVICE_INFO = {
     "WHATSAPP":  {"icon": "💬",  "name": "WhatsApp",  "short": "#WS"},
@@ -421,7 +413,7 @@ def mask_phone(number: str) -> str:
     return f"+{n}"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# MESSAGE BUILDER  (tampilan premium Telegram HTML)
+# MESSAGE BUILDER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def build_otp_message(
     otp:         str,
@@ -431,20 +423,6 @@ def build_otp_message(
     region_code: str,
     masked_num:  str,
 ) -> str:
-    """
-    Contoh output di Telegram:
-
-    ╔══════════════════════╗
-    ║  💬  WHATSAPP        ║
-    ╚══════════════════════╝
-    🌍  Indonesia  ·  🇮🇩  ID
-    📱  +6281····7890
-
-    🔐  OTP CODE
-        <code>5 8 3 1 6 2</code>
-
-    ⏱  26 Jul 2026  ·  14:32:07
-    """
     spaced = " ".join(list(otp))
     ts     = datetime.now().strftime("%d %b %Y  ·  %H:%M:%S")
     line   = "━" * 24
@@ -466,7 +444,7 @@ def build_otp_message(
     )
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# SENT CACHE  (dedup agar OTP tidak terkirim dua kali)
+# SENT CACHE
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 _sent_cache_lock = threading.Lock()
 _cache_dirty     = False
@@ -508,13 +486,12 @@ def cache_add(uid: str):
         _cache_dirty = False
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# GROUP TARGETS  (daftar grup tujuan OTP, bisa ditambah via /addbot)
+# GROUP TARGETS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 _targets_lock    = threading.Lock()
-_forward_targets: set = {DEFAULT_TARGET}   # mulai dengan default group
+_forward_targets: set = {DEFAULT_TARGET}
 
 def _load_groups():
-    """Baca groups.json dan merge ke _forward_targets saat startup."""
     if not os.path.exists(GROUPS_FILE):
         return
     try:
@@ -539,7 +516,6 @@ def _save_groups():
         _log("GROUP", f"save error: {e}", Fore.YELLOW)
 
 def add_group(chat_id: int) -> bool:
-    """Tambah grup. Return True jika baru, False jika sudah ada."""
     with _targets_lock:
         if chat_id in _forward_targets:
             return False
@@ -548,7 +524,6 @@ def add_group(chat_id: int) -> bool:
     return True
 
 def remove_group(chat_id: int) -> bool:
-    """Hapus grup. Return True jika berhasil, False jika tidak ada."""
     with _targets_lock:
         if chat_id not in _forward_targets or chat_id == DEFAULT_TARGET:
             return False
@@ -569,7 +544,6 @@ _tg_session.mount("https://", requests.adapters.HTTPAdapter(
 ))
 
 def _tg_post(chat_id, text, reply_markup=None, retries=3):
-    """Kirim satu pesan ke satu chat_id. Return True jika sukses."""
     payload = {
         "chat_id":                  chat_id,
         "text":                     text,
@@ -602,14 +576,9 @@ def _tg_post(chat_id, text, reply_markup=None, retries=3):
     return False
 
 def tg_send_msg(chat_id: int, text: str):
-    """Kirim pesan plain ke satu chat (untuk balasan command)."""
     _tg_post(chat_id, text)
 
 def tg_send_otp(otp: str, msg_text: str):
-    """
-    Kirim pesan OTP ke SEMUA grup yang terdaftar di _forward_targets.
-    Setiap target dikirimi secara paralel.
-    """
     kb = {
         "inline_keyboard": [
             [{"text": f"📋  Copy OTP  —  {otp}", "copy_text": {"text": otp}}],
@@ -631,23 +600,21 @@ def tg_send_otp(otp: str, msg_text: str):
             list(pool.map(_send_one, targets))
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# COMMAND HANDLER  (/addbot /removebot /listbot)
+# COMMAND HANDLER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def handle_command(update: dict):
-    """Proses satu update dari getUpdates. Tangani command yang dikenal."""
     msg = update.get("message") or update.get("edited_message")
     if not msg:
         return
 
     chat      = msg.get("chat", {})
     chat_id   = chat.get("id")
-    chat_type = chat.get("type", "")       # private / group / supergroup / channel
+    chat_type = chat.get("type", "")
     chat_name = chat.get("title") or chat.get("username") or str(chat_id)
     user      = msg.get("from", {})
     user_id   = user.get("id", 0)
     text      = (msg.get("text") or "").strip()
 
-    # Ambil command (tanpa @botname suffix)
     cmd = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
 
     if cmd == "/addbot":
@@ -697,7 +664,6 @@ def handle_command(update: dict):
                 f"ℹ️  Grup ini tidak ada dalam daftar terdaftar.")
 
     elif cmd == "/listbot":
-        # Hanya bisa diakses owner (OWNER_ID) atau dari dalam grup mana pun
         groups  = list_groups()
         lines   = [f"  {i+1}.  <code>{gid}</code>" for i, gid in enumerate(groups)]
         total   = len(groups)
@@ -710,11 +676,6 @@ def handle_command(update: dict):
             f"\n\n<i>Total: {total} grup terdaftar</i>")
 
 def tg_update_listener():
-    """
-    Long-polling getUpdates dari Telegram.
-    Handle command /addbot /removebot /listbot.
-    Berjalan sebagai daemon thread terpisah.
-    """
     offset  = 0
     api_url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates"
     _log("CMD", "update listener aktif", Fore.CYAN)
@@ -739,7 +700,7 @@ def tg_update_listener():
                     _log("CMD", f"handle error: {e}", Fore.YELLOW)
 
         except requests.exceptions.Timeout:
-            pass   # long-poll timeout normal, lanjut loop
+            pass
         except Exception as e:
             _log("CMD", f"listener error: {e}", Fore.YELLOW)
             time.sleep(5)
@@ -750,7 +711,6 @@ def tg_update_listener():
 _OTP_RE = re.compile(r"\b\d{3}[- ]?\d{3}\b")
 
 def poll_one(acc) -> bool:
-    """Ambil semua SMS baru dari satu akun. Return True jika ada OTP terkirim."""
     found  = False
     ranges = []
     try:
@@ -811,7 +771,9 @@ def poll_one(acc) -> bool:
             continue
         if not numbers:
             continue
-        n_workers = min(20, len(numbers))
+        
+        # PERBAIKAN RATE LIMIT: Kurangi jumlah max_workers dari 20 menjadi maksimal 4
+        n_workers = min(4, len(numbers))
         with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="sms") as pool:
             futs = {pool.submit(process_number, rng, n, fallback_country, code): n for n in numbers}
             for fut in as_completed(futs):
@@ -820,18 +782,19 @@ def poll_one(acc) -> bool:
                         found = True
                 except Exception as e:
                     _log("NUM", f"akun #{acc['idx']}: {e}", Fore.YELLOW)
+                time.sleep(0.15) # Jeda mikro antar completion thread
 
     return found
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ACCOUNT WORKER  (polling loop per akun)
+# ACCOUNT WORKER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def account_worker(acc):
-    sleep_time = 1.0
+    sleep_time = 2.0
     while True:
         try:
             found      = poll_one(acc)
-            sleep_time = 0.0 if found else min(sleep_time + 0.3, POLL_INTERVAL_MAX)
+            sleep_time = 1.0 if found else min(sleep_time + 0.5, POLL_INTERVAL_MAX)
         except Exception as e:
             _log("WORKER", f"akun #{acc['idx']}: {e}", Fore.RED)
             sleep_time = min(sleep_time * 2, 10.0)
@@ -839,7 +802,7 @@ def account_worker(acc):
             time.sleep(sleep_time)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# KEEPALIVE  (ping /portal agar session tidak expire)
+# KEEPALIVE
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 _last_keepalive = {}
 
@@ -858,7 +821,6 @@ def keepalive_worker(accounts):
                 try:
                     r = acc["session"].get(f"{base}/portal", timeout=15)
                     if is_worker_blocked(r):
-                        _log("KEEPALIVE", f"worker rate-limited ({base}), pindah...", Fore.YELLOW)
                         mark_worker_limited(base)
                         continue
                     if r.status_code == 200 and "/login" not in str(r.url):
@@ -894,7 +856,7 @@ def keepalive_worker(accounts):
         time.sleep(60)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# HTTP HEALTH SERVER  (Railway healthcheck)
+# HTTP HEALTH SERVER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 _bot_start_time = time.time()
 
@@ -961,7 +923,6 @@ def main():
         _log("FATAL", "BOT_TOKEN belum diset! Set via environment variable.", Fore.RED)
         sys.exit(1)
 
-    # Muat daftar grup dari file (merge ke _forward_targets)
     _load_groups()
 
     cookies_list = load_cookies()
@@ -988,7 +949,6 @@ def main():
     _log("CONFIG", f"Keepalive       →  tiap {KEEPALIVE_INTERVAL}s", Fore.CYAN)
     print()
 
-    # Jalankan semua thread background
     threading.Thread(target=run_health_server,                     daemon=True, name="health").start()
     threading.Thread(target=tg_update_listener,                    daemon=True, name="cmd-listener").start()
     threading.Thread(target=keepalive_worker, args=(accounts,),    daemon=True, name="keepalive").start()
@@ -1003,7 +963,6 @@ def main():
     print()
     _log("CONFIG", "Bot berjalan. Ketik /addbot di grup untuk mendaftarkan.", Fore.CYAN)
 
-    # Main thread: flush cache secara periodik
     global _cache_dirty, _last_cache_save
     while True:
         if _cache_dirty and time.time() - _last_cache_save >= 5:
@@ -1014,3 +973,4 @@ def main():
         time.sleep(5)
 
 main()
+                
