@@ -17,7 +17,7 @@ import signal
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import HTTPServer, BaseHTTPRequestHandler
-
+from curl_cffi.requests import Session
 import requests
 import phonenumbers
 from phonenumbers import geocoder
@@ -82,11 +82,9 @@ def _log(tag, msg, color=Fore.CYAN):
 # WORKER POOL  (proxy fallback jika kena rate-limit)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WORKER_POOL = [
-    "https://plain-butterfly-d9e9.kicenivas.workers.dev",
-    "https://ivasmunchen.serverprivate1.web.id",
-    "https://ivasmsbykicenv2.kikixrakaofficial.biz.id",
-    "https://ivasbykiven.alwayskixyzshop.web.id",
+    "https://ivasms.com",
 ]
+
 
 _worker_lock          = threading.Lock()
 _active_worker_idx    = 0
@@ -168,14 +166,14 @@ def make_session(cookies: dict, timeout=30):
         "Origin":           "https://ivasms.com",
         "Referer":          "https://ivasms.com/",
     }
-    s = httpx.Client(
-        follow_redirects=True,
+    s = Session(
+        impersonate="chrome120",
         timeout=timeout,
         headers=hdrs,
-        limits=httpx.Limits(max_connections=50, max_keepalive_connections=20),
     )
     s.cookies.update(cookies)
     return s
+    
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CSRF CACHE  (per-akun, TTL 15 menit)
