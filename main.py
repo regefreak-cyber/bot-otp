@@ -239,7 +239,7 @@ import os
 async def ivas_monitoring_task(app):
     global IVAS_SESSION_CLIENT
     
-    # Header lengkap agar mirip Chrome asli
+    # Header penyamaran super lengkap
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -256,21 +256,23 @@ async def ivas_monitoring_task(app):
     }
 
     IVAS_SESSION_CLIENT = httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers=headers)
-    
-    # --- BACA COOKIE DARI FILE cookies.json ---
-        if os.path.exists('cookies.json'):
+
+    # --- BACA & INJECT COOKIE DARI FILE cookies.json ---
+    if os.path.exists('cookies.json'):
         try:
             with open('cookies.json', 'r') as f:
                 cookies_data = json.load(f)
                 for item in cookies_data:
-                    # Cukup set name dan value secara eksplisit
-                    IVAS_SESSION_CLIENT.cookies.set(item['name'], item['value'])
-            logger.info("Berhasil memuat cookies.json!")
+                    c_name = item.get('name')
+                    c_value = item.get('value')
+                    c_domain = item.get('domain', '').lstrip('.')
+                    if c_name and c_value:
+                        IVAS_SESSION_CLIENT.cookies.set(c_name, c_value, domain=c_domain)
+            logger.info("Berhasil memasang cookies.json!")
         except Exception as e:
             logger.error(f"Gagal membaca cookies.json: {e}")
-            
     else:
-        logger.warning("File cookies.json tidak ditemukan! Bot berjalan tanpa cookies.")
+        logger.warning("File cookies.json tidak ditemukan!")
 
     while True:
         try:
@@ -278,18 +280,17 @@ async def ivas_monitoring_task(app):
             resp = await IVAS_SESSION_CLIENT.get(IVAS_BASE_URL)
             logger.info(f"Response Status: {resp.status_code}")
 
-            # --- CEK JIKA COOKIE EXPIRED / 403 FORBIDDEN ---
+            # Cek status koneksi / Cookie
             if resp.status_code in [403, 401] or "login" in str(resp.url).lower():
-                warn_msg = "⚠️ **WARNING: COOKIE IVAS EXPIRED / UNAUTHORIZED (403)!**\n\nSilakan perbarui file `cookies.json` di repository GitHub."
+                warn_msg = "⚠️ **WARNING: COOKIE IVAS EXPIRED / TERBLOKIR (403)!**\n\nSilakan perbarui file `cookies.json` di GitHub."
                 logger.error(warn_msg)
                 
-                # Kirim alert warning ke Telegram Admin/Channel
                 try:
                     await app.bot.send_message(chat_id=DEFAULT_OTP_CHANNEL, text=warn_msg, parse_mode="Markdown")
                 except Exception as err:
-                    logger.error(f"Gagal kirim warning ke TG: {err}")
+                    logger.error(f"Gagal kirim warning ke Telegram: {err}")
 
-                await asyncio.sleep(60) # Tunggu 1 menit sebelum retry
+                await asyncio.sleep(60)
                 continue
 
             token = extract_csrf_token(resp.text)
@@ -298,7 +299,7 @@ async def ivas_monitoring_task(app):
                 await asyncio.sleep(10)
                 continue
 
-            # Jika Cookie Aktif & CSRF dapet, langsung tarik SMS!
+            # Tarik SMS jika Cookie & Token Valid
             messages = await ivas_fetch_sms(IVAS_SESSION_CLIENT, headers, token)
 
             for msg in reversed(messages):
@@ -330,6 +331,7 @@ async def ivas_monitoring_task(app):
         except Exception as e:
             logger.error(f"Error di IVAS task: {e}")
             await asyncio.sleep(10)
+            
                 
 
 # ---- Telegram Commands ----
