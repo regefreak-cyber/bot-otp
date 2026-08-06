@@ -236,7 +236,7 @@ async def ivas_fetch_sms(client: httpx.AsyncClient, headers: dict, csrf_token: s
 async def ivas_monitoring_task(app):
     global IVAS_SESSION_CLIENT
     headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
-    
+
     if IVAS_SESSION_CLIENT is None:
         IVAS_SESSION_CLIENT = httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers=headers)
 
@@ -245,8 +245,7 @@ async def ivas_monitoring_task(app):
             logger.info("Connecting to IVAS Login...")
             resp = await IVAS_SESSION_CLIENT.get(IVAS_LOGIN_URL)
             logger.info(f"Response Status: {resp.status_code}")
-            
-            
+
             token = extract_csrf_token(resp.text)
             if not token:
                 logger.error("Gagal dapet CSRF Token!")
@@ -255,23 +254,26 @@ async def ivas_monitoring_task(app):
 
             logger.info(f"CSRF Token dapet: {token[:10]}...")
 
-            # --- [TAMBAHKAN BAGIAN INI: PROSES KIRIM USERNAME & PASSWORD] ---
             login_payload = {
                 "username": IVAS_USERNAME,
                 "password": IVAS_PASSWORD,
-                "_token": token  # Sesuaikan nama key token jika beda (misal: 'csrf_token')
+                "capt": token
             }
 
             login_resp = await IVAS_SESSION_CLIENT.post(IVAS_LOGIN_URL, data=login_payload)
             logger.info(f"Login Status Code: {login_resp.status_code}")
             logger.info("Login successful, fetching dashboard...")
-            # -----------------------------------------------------------------
 
-            # Setelah berhasil login, barulah masuk ke loop narik SMS
             while True:
-                messages = await ivas_fetch_sms(IVAS_SESSION_CLIENT, headers, ...)
-                
-                    
+                messages = await ivas_fetch_sms(IVAS_SESSION_CLIENT, headers)
+
+                for msg in reversed(messages):
+                    sms_id = msg.get("id")
+                    if sms_id in PROCESSED_IDS:
+                        continue
+
+                    PROCESSED_IDS.add(sms_id)
+
                     num = msg.get('number')
                     sms = msg.get('full_sms')
                     otp = msg.get('code')
@@ -279,22 +281,22 @@ async def ivas_monitoring_task(app):
 
                     text_pub, markup_pub = format_public_message(num, svc, sms, otp)
 
-                    # Send to Telegram OTP Channel
                     try:
                         await app.bot.send_message(
-                            chat_id=DEFAULT_OTP_CHANNEL,
+                            chat_id=OTP_CHANNEL_ID,
                             text=text_pub,
-                            parse_mode=ParseMode.HTML,
-                            reply_markup=markup_pub
+                            reply_markup=markup_pub,
+                            parse_mode="HTML"
                         )
-                        logger.info(f"Broadcasted OTP for number: {num}")
                     except Exception as err:
-                        logger.error(f"Broadcast Error: {err}")
+                        logger.error(f"Gagal kirim ke channel: {err}")
 
-                    PROCESSED_IDS.add(sms_id)
+                await asyncio.sleep(10)
 
-                await asyncio.sleep(5)
-
+        except Exception as e:
+            logger.error(f"Error di IVAS task: {e}")
+            await asyncio.sleep(10)
+            
         except Exception as e:
             logger.error(f"IVAS Monitor Critical Exception: {e}")
             IVAS_SESSION_CLIENT = None
