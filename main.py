@@ -237,7 +237,6 @@ import json
 import os
 
 async def ivas_monitoring_task(app):
-async def ivas_monitoring_task(app):
     global IVAS_SESSION_CLIENT
     
     # User-Agent dibuat menyesuaikan request browser umum
