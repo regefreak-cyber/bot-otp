@@ -240,11 +240,12 @@ async def ivas_monitoring_task(app):
     if IVAS_SESSION_CLIENT is None:
         IVAS_SESSION_CLIENT = httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers=headers)
 
-        while True:
+    while True:
         try:
             logger.info("Connecting to IVAS Login...")
             resp = await IVAS_SESSION_CLIENT.get(IVAS_LOGIN_URL)
             logger.info(f"Response Status: {resp.status_code}")
+            
             
             token = extract_csrf_token(resp.text)
             if not token:
