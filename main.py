@@ -43,7 +43,7 @@ COOKIE_FILE        = "cookie.json"
 CACHE_FILE         = "file/sent_cache.json"
 GROUPS_FILE        = "file/groups.json"     # daftar grup tambahan via /addbot
 MAX_CACHE          = 2000
-POLL_INTERVAL_MAX  = 6.0    # detik — dinaikkan sedikit agar tidak spam request
+POLL_INTERVAL_MAX  = 12.0
 KEEPALIVE_INTERVAL = 480    # detik — ping /portal tiap 8 menit
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -281,6 +281,7 @@ def get_ranges_cached(acc):
     return get_ranges(acc)
 
 def get_numbers(acc, rng, _retry=0):
+    time.sleep(0.4)
     base          = get_base()
     today         = datetime.now().strftime("%Y-%m-%d")
     csrf          = get_recv_csrf(acc)
@@ -305,8 +306,9 @@ def get_numbers(acc, rng, _retry=0):
         except:
             pass
     return list(set(numbers))
-
+    
 def get_sms(acc, rng, number, _retry=0):
+    time.sleep(0.3)
     base          = get_base()
     today         = datetime.now().strftime("%Y-%m-%d")
     csrf          = get_recv_csrf(acc)
@@ -340,6 +342,7 @@ def get_sms(acc, rng, number, _retry=0):
     except Exception as e:
         _log("SMS", f"parse error: {e}", Fore.RED)
     return list(dict.fromkeys(sms_texts))
+    
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PLATFORM DETECTION
@@ -771,20 +774,17 @@ def poll_one(acc) -> bool:
             continue
         if not numbers:
             continue
-        
-        # PERBAIKAN RATE LIMIT: Kurangi jumlah max_workers dari 20 menjadi maksimal 4
-        n_workers = min(4, len(numbers))
-        with ThreadPoolExecutor(max_workers=n_workers, thread_name_prefix="sms") as pool:
-            futs = {pool.submit(process_number, rng, n, fallback_country, code): n for n in numbers}
-            for fut in as_completed(futs):
-                try:
-                    if fut.result():
-                        found = True
-                except Exception as e:
-                    _log("NUM", f"akun #{acc['idx']}: {e}", Fore.YELLOW)
-                time.sleep(0.15) # Jeda mikro antar completion thread
+
+        for n in numbers:
+            try:
+                if process_number(rng, n, fallback_country, code):
+                    found = True
+            except Exception as e:
+                _log("NUM", f"akun #{acc['idx']}: {e}", Fore.YELLOW)
+            time.sleep(0.5)
 
     return found
+    
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ACCOUNT WORKER
