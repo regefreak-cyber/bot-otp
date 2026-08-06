@@ -412,16 +412,17 @@ def normalize_number(num: str, country_code: str) -> str:
 def mask_phone(number: str) -> str:
     return str(number)
 
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # MESSAGE BUILDER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def build_otp_message(
-    otp:         str,
-    svc:         dict,
-    flag:        str,
-    country:     str,
+    otp: str,
+    svc: dict,
+    flag: str,
+    country: str,
     region_code: str,
-    masked_num:  str,
+    masked_num: str,
 ) -> str:
     raw_num = re.sub(r"\D", "", str(masked_num))
 
@@ -435,13 +436,11 @@ def build_otp_message(
 
     return (
         f"{svc['icon']} ¤ {flag} <b>{region_code}</b> ¤ {phone_formatted} ¤ 🔊\n"
-        f"<b>{country.title()}</b>\n"
         f"\n"
         f"<b>@ Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>"
     )
+       
     
-    
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # SENT CACHE
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
