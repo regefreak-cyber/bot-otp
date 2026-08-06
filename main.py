@@ -426,20 +426,19 @@ def build_otp_message(
 ) -> str:
     raw_num = re.sub(r"\D", "", str(masked_num))
 
-    # Masking nomor telepon langsung di sini
+    # Masking nomor telepon & tebelin
     if len(raw_num) >= 8:
-        phone_formatted = f"{raw_num[:4]}•SPDRMT•{raw_num[-4:]}"
+        phone_formatted = f"<b>{raw_num[:4]}•SPDRMT•{raw_num[-4:]}</b>"
     else:
-        phone_formatted = raw_num
+        phone_formatted = f"<b>{raw_num}</b>"
 
     prefix = raw_num[:6] if len(raw_num) >= 6 else raw_num
 
     return (
-        f"{svc['icon']} ¤ {flag} <b>{region_code}</b> ¤ {phone_formatted} ¤ 🔊\n"
+        f"¤ {flag} <b>{region_code}</b> ¤ {phone_formatted} ¤\n"
         f"\n"
-        f"<b>@ Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>"
+        f"<b>Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>"
     )
-       
     
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # SENT CACHE
