@@ -239,24 +239,36 @@ import os
 async def ivas_monitoring_task(app):
     global IVAS_SESSION_CLIENT
     
+    # Header lengkap agar mirip Chrome asli
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-        'Referer': 'https://ivasms.com/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+        'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
+        'Cache-Control': 'max-age=0',
+        'Sec-Ch-Ua': '"Not-A.Brand";v="99", "Chromium";v="124", "Google Chrome";v="124"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1'
     }
 
     IVAS_SESSION_CLIENT = httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers=headers)
-
+    
     # --- BACA COOKIE DARI FILE cookies.json ---
-    if os.path.exists('cookies.json'):
+        if os.path.exists('cookies.json'):
         try:
             with open('cookies.json', 'r') as f:
                 cookies_data = json.load(f)
                 for item in cookies_data:
-                    IVAS_SESSION_CLIENT.cookies.set(item['name'], item['value'], domain=item.get('domain', 'ivasms.com'))
+                    # Cukup set name dan value secara eksplisit
+                    IVAS_SESSION_CLIENT.cookies.set(item['name'], item['value'])
             logger.info("Berhasil memuat cookies.json!")
         except Exception as e:
             logger.error(f"Gagal membaca cookies.json: {e}")
+            
     else:
         logger.warning("File cookies.json tidak ditemukan! Bot berjalan tanpa cookies.")
 
