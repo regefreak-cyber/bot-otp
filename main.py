@@ -426,25 +426,13 @@ def build_otp_message(
     region_code: str,
     masked_num:  str,
 ) -> str:
-    spaced = " ".join(list(otp))
-    ts     = datetime.now().strftime("%d %b %Y  ·  %H:%M:%S")
-    line   = "━" * 24
-
     return (
-        f"╔{'═' * 24}╗\n"
-        f"  {svc['icon']}  <b>{svc['name'].upper()}</b>\n"
-        f"╚{'═' * 24}╝\n"
+        f"{svc['icon']} ¤ {flag} <b>{region_code}</b> ¤ {masked_num} ¤ 🔊\n"
+        f"<b>{country.title()}</b>\n"
         f"\n"
-        f"🌍  <b>{country.title()}</b>  ·  {flag}  <code>{region_code}</code>\n"
-        f"📱  <code>{masked_num}</code>\n"
-        f"\n"
-        f"{line}\n"
-        f"🔐  <b>OTP CODE</b>\n"
-        f"    <b><code>{spaced}</code></b>\n"
-        f"{line}\n"
-        f"\n"
-        f"<i>⏱  {ts}</i>"
+        f"<b>@ Prefix:</b> <code>{otp}</code>"
     )
+    
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # SENT CACHE
@@ -584,11 +572,8 @@ def tg_send_msg(chat_id: int, text: str):
 def tg_send_otp(otp: str, msg_text: str):
     kb = {
         "inline_keyboard": [
-            [{"text": f"📋  Copy OTP  —  {otp}", "copy_text": {"text": otp}}],
-            [
-                {"text": "🏆  Channel", "url": CHANNEL_LINK},
-                {"text": "📱  Number",  "url": NUMBER_LINK},
-            ],
+            [{"text": f"🛍️ 📋 {otp}", "copy_text": {"text": otp}}],
+            [{"text": "23 All Files", "url": "https://t.me/matchaappp"}],
         ]
     }
     targets = list_groups()
@@ -601,7 +586,7 @@ def tg_send_otp(otp: str, msg_text: str):
     else:
         with ThreadPoolExecutor(max_workers=min(8, len(targets)), thread_name_prefix="tgsend") as pool:
             list(pool.map(_send_one, targets))
-
+            
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # COMMAND HANDLER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
