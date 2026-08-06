@@ -6,3 +6,4 @@ openpyxl
 PyPDF2
 langdetect
 pandas
+curl_cffi
