@@ -158,7 +158,7 @@ def format_public_message(number, service, message, otp):
     return text, InlineKeyboardMarkup(keyboard)
 
 # ---- IVAS Core Engine ----
-async def ivas_fetch_sms(client: httpx.AsyncClient, headers: dict, csrf_token: str):
+async def ivas_fetch_sms(client, headers: dict, csrf_token: str):
     all_messages = []
     try:
         today = datetime.now().strftime('%Y-%m-%d')
