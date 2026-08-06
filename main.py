@@ -410,10 +410,7 @@ def normalize_number(num: str, country_code: str) -> str:
     return num
 
 def mask_phone(number: str) -> str:
-    n = str(number).replace("+", "").replace(" ", "")
-    if len(n) >= 10:
-        return f"+{n[:4]}{'·' * 4}{n[-4:]}"
-    return f"+{n}"
+    return str(number)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # MESSAGE BUILDER
@@ -426,12 +423,23 @@ def build_otp_message(
     region_code: str,
     masked_num:  str,
 ) -> str:
+    raw_num = re.sub(r"\D", "", str(masked_num))
+
+    # Masking nomor telepon langsung di sini
+    if len(raw_num) >= 8:
+        phone_formatted = f"{raw_num[:4]}•SPDRMT•{raw_num[-4:]}"
+    else:
+        phone_formatted = raw_num
+
+    prefix = raw_num[:6] if len(raw_num) >= 6 else raw_num
+
     return (
-        f"{svc['icon']} ¤ {flag} <b>{region_code}</b> ¤ {masked_num} ¤ 🔊\n"
+        f"{svc['icon']} ¤ {flag} <b>{region_code}</b> ¤ {phone_formatted} ¤ 🔊\n"
         f"<b>{country.title()}</b>\n"
         f"\n"
-        f"<b>@ Prefix:</b> <code>{otp}</code>"
+        f"<b>@ Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>"
     )
+    
     
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -572,8 +580,8 @@ def tg_send_msg(chat_id: int, text: str):
 def tg_send_otp(otp: str, msg_text: str):
     kb = {
         "inline_keyboard": [
-            [{"text": f"🛍️ 📋 {otp}", "copy_text": {"text": otp}}],
-            [{"text": "23 All Files", "url": "https://t.me/matchaappp"}],
+            [{"text": f"{otp}", "copy_text": {"text": otp}}],
+            [{"text": "All Files", "url": "https://t.me/matchaappp"}],
         ]
     }
     targets = list_groups()
