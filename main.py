@@ -3,11 +3,13 @@ import sqlite3
 import os
 import re
 import asyncio
+import json
 from curl_cffi.requests import AsyncSession
 import hashlib
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from langdetect import detect
+
 
 # ---- PTB Imports ----
 from telegram import (
