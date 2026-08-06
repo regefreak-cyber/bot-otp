@@ -233,74 +233,92 @@ async def ivas_fetch_sms(client: httpx.AsyncClient, headers: dict, csrf_token: s
         logger.error(f"IVAS Fetch Error: {e}")
         return []
 
+import json
+import os
+
 async def ivas_monitoring_task(app):
     global IVAS_SESSION_CLIENT
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+    
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+        'Referer': 'https://ivasms.com/'
+    }
 
-    if IVAS_SESSION_CLIENT is None:
-        IVAS_SESSION_CLIENT = httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers=headers)
+    IVAS_SESSION_CLIENT = httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers=headers)
+
+    # --- BACA COOKIE DARI FILE cookies.json ---
+    if os.path.exists('cookies.json'):
+        try:
+            with open('cookies.json', 'r') as f:
+                cookies_data = json.load(f)
+                for item in cookies_data:
+                    IVAS_SESSION_CLIENT.cookies.set(item['name'], item['value'], domain=item.get('domain', 'ivasms.com'))
+            logger.info("Berhasil memuat cookies.json!")
+        except Exception as e:
+            logger.error(f"Gagal membaca cookies.json: {e}")
+    else:
+        logger.warning("File cookies.json tidak ditemukan! Bot berjalan tanpa cookies.")
 
     while True:
         try:
-            logger.info("Connecting to IVAS Login...")
-            resp = await IVAS_SESSION_CLIENT.get(IVAS_LOGIN_URL)
+            logger.info("Connecting to IVAS Dashboard...")
+            resp = await IVAS_SESSION_CLIENT.get(IVAS_BASE_URL)
             logger.info(f"Response Status: {resp.status_code}")
+
+            # --- CEK JIKA COOKIE EXPIRED / 403 FORBIDDEN ---
+            if resp.status_code in [403, 401] or "login" in str(resp.url).lower():
+                warn_msg = "⚠️ **WARNING: COOKIE IVAS EXPIRED / UNAUTHORIZED (403)!**\n\nSilakan perbarui file `cookies.json` di repository GitHub."
+                logger.error(warn_msg)
+                
+                # Kirim alert warning ke Telegram Admin/Channel
+                try:
+                    await app.bot.send_message(chat_id=DEFAULT_OTP_CHANNEL, text=warn_msg, parse_mode="Markdown")
+                except Exception as err:
+                    logger.error(f"Gagal kirim warning ke TG: {err}")
+
+                await asyncio.sleep(60) # Tunggu 1 menit sebelum retry
+                continue
 
             token = extract_csrf_token(resp.text)
             if not token:
-                logger.error("Gagal dapet CSRF Token!")
+                logger.error("Gagal dapet CSRF Token dari Dashboard!")
                 await asyncio.sleep(10)
                 continue
 
-            logger.info(f"CSRF Token dapet: {token[:10]}...")
+            # Jika Cookie Aktif & CSRF dapet, langsung tarik SMS!
+            messages = await ivas_fetch_sms(IVAS_SESSION_CLIENT, headers, token)
 
-            login_payload = {
-                "username": IVAS_USERNAME,
-                "password": IVAS_PASSWORD,
-                "capt": token
-            }
+            for msg in reversed(messages):
+                sms_id = msg.get("id")
+                if sms_id in PROCESSED_IDS:
+                    continue
 
-            login_resp = await IVAS_SESSION_CLIENT.post(IVAS_LOGIN_URL, data=login_payload)
-            logger.info(f"Login Status Code: {login_resp.status_code}")
-            logger.info("Login successful, fetching dashboard...")
+                PROCESSED_IDS.add(sms_id)
 
-            while True:
-                messages = await ivas_fetch_sms(IVAS_SESSION_CLIENT, headers)
+                num = msg.get('number')
+                sms = msg.get('full_sms')
+                otp = msg.get('code')
+                svc = msg.get('service')
 
-                for msg in reversed(messages):
-                    sms_id = msg.get("id")
-                    if sms_id in PROCESSED_IDS:
-                        continue
+                text_pub, markup_pub = format_public_message(num, svc, sms, otp)
 
-                    PROCESSED_IDS.add(sms_id)
+                try:
+                    await app.bot.send_message(
+                        chat_id=DEFAULT_OTP_CHANNEL,
+                        text=text_pub,
+                        reply_markup=markup_pub,
+                        parse_mode="HTML"
+                    )
+                except Exception as err:
+                    logger.error(f"Gagal kirim ke channel: {err}")
 
-                    num = msg.get('number')
-                    sms = msg.get('full_sms')
-                    otp = msg.get('code')
-                    svc = msg.get('service')
-
-                    text_pub, markup_pub = format_public_message(num, svc, sms, otp)
-
-                    try:
-                        await app.bot.send_message(
-                            chat_id=OTP_CHANNEL_ID,
-                            text=text_pub,
-                            reply_markup=markup_pub,
-                            parse_mode="HTML"
-                        )
-                    except Exception as err:
-                        logger.error(f"Gagal kirim ke channel: {err}")
-
-                await asyncio.sleep(10)
+            await asyncio.sleep(10)
 
         except Exception as e:
             logger.error(f"Error di IVAS task: {e}")
             await asyncio.sleep(10)
-            
-        except Exception as e:
-            logger.error(f"IVAS Monitor Critical Exception: {e}")
-            IVAS_SESSION_CLIENT = None
-            await asyncio.sleep(10)
+                
 
 # ---- Telegram Commands ----
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
