@@ -53,7 +53,7 @@ logger = logging.getLogger(__name__)
 
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
-BOT_TOKEN = "8879538187:AAFDavorTbeRYQoQbMY-4mDcTI1d1GMHVlc"
+BOT_TOKEN = "8879538187:AAGjRDdUdO6Iv50d3rKu_tCAcOwlVmBlg2k"
 ADMIN_IDS = [6884022678]
 
 
