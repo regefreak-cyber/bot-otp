@@ -237,14 +237,14 @@ import json
 import os
 
 async def ivas_monitoring_task(app):
+async def ivas_monitoring_task(app):
     global IVAS_SESSION_CLIENT
     
-    # Header penyamaran super lengkap
+    # User-Agent dibuat menyesuaikan request browser umum
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-        'Accept-Language': 'id-ID,id;q=0.9,en-US;q=0.8,en;q=0.7',
-        'Cache-Control': 'max-age=0',
+        'Accept-Language': 'en-US,en;q=0.9,id;q=0.8',
         'Sec-Ch-Ua': '"Not-A.Brand";v="99", "Chromium";v="124", "Google Chrome";v="124"',
         'Sec-Ch-Ua-Mobile': '?0',
         'Sec-Ch-Ua-Platform': '"Windows"',
@@ -257,7 +257,7 @@ async def ivas_monitoring_task(app):
 
     IVAS_SESSION_CLIENT = httpx.AsyncClient(timeout=40.0, follow_redirects=True, headers=headers)
 
-    # --- BACA & INJECT COOKIE DARI FILE cookies.json ---
+    # Inject Cookie langsung tanpa batasan domain agar tidak meleset
     if os.path.exists('cookies.json'):
         try:
             with open('cookies.json', 'r') as f:
@@ -265,22 +265,24 @@ async def ivas_monitoring_task(app):
                 for item in cookies_data:
                     c_name = item.get('name')
                     c_value = item.get('value')
-                    c_domain = item.get('domain', '').lstrip('.')
                     if c_name and c_value:
-                        IVAS_SESSION_CLIENT.cookies.set(c_name, c_value, domain=c_domain)
+                        IVAS_SESSION_CLIENT.cookies.set(c_name, c_value)
             logger.info("Berhasil memasang cookies.json!")
         except Exception as e:
             logger.error(f"Gagal membaca cookies.json: {e}")
     else:
         logger.warning("File cookies.json tidak ditemukan!")
 
+    # Target URL langsung ke halaman portal SMS
+    TARGET_DASHBOARD_URL = "https://www.ivasms.com/portal/sms/received"
+
     while True:
         try:
             logger.info("Connecting to IVAS Dashboard...")
-            resp = await IVAS_SESSION_CLIENT.get(IVAS_BASE_URL)
+            resp = await IVAS_SESSION_CLIENT.get(TARGET_DASHBOARD_URL)
             logger.info(f"Response Status: {resp.status_code}")
 
-            # Cek status koneksi / Cookie
+            # Jika kena redirect ke login / 403 / 401
             if resp.status_code in [403, 401] or "login" in str(resp.url).lower():
                 warn_msg = "⚠️ **WARNING: COOKIE IVAS EXPIRED / TERBLOKIR (403)!**\n\nSilakan perbarui file `cookies.json` di GitHub."
                 logger.error(warn_msg)
@@ -298,6 +300,8 @@ async def ivas_monitoring_task(app):
                 logger.error("Gagal dapet CSRF Token dari Dashboard!")
                 await asyncio.sleep(10)
                 continue
+
+            logger.info(f"CSRF Token OK: {token[:10]}... Memulai polling SMS.")
 
             # Tarik SMS jika Cookie & Token Valid
             messages = await ivas_fetch_sms(IVAS_SESSION_CLIENT, headers, token)
@@ -331,8 +335,7 @@ async def ivas_monitoring_task(app):
         except Exception as e:
             logger.error(f"Error di IVAS task: {e}")
             await asyncio.sleep(10)
-            
-                
+                      
 
 # ---- Telegram Commands ----
 async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
