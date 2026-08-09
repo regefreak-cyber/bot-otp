@@ -173,6 +173,9 @@ def tg_send_otp(otp: str, msg_text: str):
     except Exception as e:
         _log("TG-ERR", f"Gagal kirim OTP: {e}", Fore.RED)
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# FIX HANDLE FILE TXT (AUTO CLEAN & PARSE)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def handle_command_and_files(update: dict):
     msg = update.get("message") or update.get("edited_message")
     if not msg:
@@ -192,21 +195,26 @@ def handle_command_and_files(update: dict):
                 # Get File Path
                 r = _tg_session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}").json()
                 file_path = r.get("result", {}).get("file_path")
-                # Download File Content
                 file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
                 content  = _tg_session.get(file_url).text
                 
                 added_count = 0
                 for line in content.splitlines():
-                    num = re.sub(r"\D", "", line)
-                    if len(num) >= 6:
-                        if add_target_number(num):
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Bersihin nomor dari karakter non-angka
+                    num_clean = re.sub(r"\D", "", line)
+                    if len(num_clean) >= 6:
+                        if add_target_number(num_clean):
                             added_count += 1
 
-                tg_send_msg(chat_id, f"✅ <b>BERHASIL!</b>\nMenambahkan <b>{added_count}</b> nomor baru dari file <code>{file_name}</code>.")
-                _log("NUMS", f"Added {added_count} numbers from file {file_name}", Fore.GREEN)
+                tg_send_msg(chat_id, f"✅ <b>BERHASIL!</b>\nBerhasil memuat <b>{added_count}</b> nomor dari file <code>{file_name}</code>.")
+                _log("NUMS", f"Sukses nambah {added_count} nomor dari {file_name}", Fore.GREEN)
             except Exception as e:
                 tg_send_msg(chat_id, f"❌ Gagal memproses file: {e}")
+                _log("NUMS", f"Error parse file: {e}", Fore.RED)
         return
 
     # 2. HANDLE COMMANDS
@@ -215,13 +223,11 @@ def handle_command_and_files(update: dict):
     if cmd == "/addnum":
         parts = text.split()
         if len(parts) > 1:
-            num = parts[1]
+            num = re.sub(r"\D", "", parts[1])
             if add_target_number(num):
-                tg_send_msg(chat_id, f"✅ Nomor <code>{num}</code> ditambahkan ke daftar pantaun.")
+                tg_send_msg(chat_id, f"✅ Nomor <code>{num}</code> ditambahkan.")
             else:
                 tg_send_msg(chat_id, "⚠️ Nomor tidak valid atau sudah ada.")
-        else:
-            tg_send_msg(chat_id, "Gunakan: <code>/addnum 628xxxx</code>")
 
     elif cmd == "/listnum":
         with _target_nums_lock:
@@ -235,14 +241,15 @@ def handle_command_and_files(update: dict):
         tg_send_msg(chat_id, "🗑️ Semua daftar nomor terpantau berhasil dibersihkan!")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# POLLING TARGETED NUMBERS ONLY
+# FIX POLLING TO IVAS (DENGAN AUTODETECT RANGE)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-sent_cache = set()
-
 def poll_target_numbers(acc):
     base = get_base()
     csrf = get_recv_csrf(acc)
     today = datetime.now().strftime("%Y-%m-%d")
+
+    # Ambil range aktif dulu dari iVAS biar gampang dicocokkan
+    active_ranges = get_ranges_cached(acc)
 
     with _target_nums_lock:
         nums_to_check = list(_active_numbers.keys())
@@ -251,44 +258,44 @@ def poll_target_numbers(acc):
         return
 
     for num in nums_to_check:
-        try:
-            r = acc["session"].post(
-                f"{base}/portal/sms/received/getsms/number/sms",
-                data={"_token": csrf, "start": today, "end": today, "Number": num, "Range": ""},
-                headers={"Referer": f"{base}/portal/sms/received", "X-Requested-With": "XMLHttpRequest"},
-                timeout=10
-            )
-            if r.status_code != 200:
-                continue
-
-            soup = BeautifulSoup(r.text, "html.parser")
-            cells = soup.find_all(["td", "div"], class_=re.compile(r"message|sms", re.I)) or [soup]
-            
-            for cell in cells:
-                sms_text = cell.get_text(separator=" ").strip().replace("<#>", "")
-                if not sms_text or "No SMS Found" in sms_text:
+        for rng in active_ranges:
+            try:
+                r = acc["session"].post(
+                    f"{base}/portal/sms/received/getsms/number/sms",
+                    data={"_token": csrf, "start": today, "end": today, "Number": num, "Range": rng},
+                    headers={"Referer": f"{base}/portal/sms/received", "X-Requested-With": "XMLHttpRequest"},
+                    timeout=8
+                )
+                if r.status_code != 200 or "No SMS Found" in r.text:
                     continue
 
-                uid = hashlib.md5(f"{num}-{sms_text}".encode()).hexdigest()
-                if uid in sent_cache:
-                    continue
+                soup = BeautifulSoup(r.text, "html.parser")
+                cells = soup.find_all(["td", "div"], class_=re.compile(r"message|sms", re.I)) or [soup]
+                
+                for cell in cells:
+                    sms_text = cell.get_text(separator=" ").strip().replace("<#>", "")
+                    if not sms_text or "No SMS Found" in sms_text:
+                        continue
 
-                matches = _OTP_RE.findall(sms_text)
-                if matches:
-                    raw_otp = matches[0]
-                    clean_otp = re.sub(r"\D", "", raw_otp)
-                    
-                    # Send to Telegram
-                    msg = build_otp_message(clean_otp, "🇲🇨", "ID", num)
-                    tg_send_otp(clean_otp, msg)
-                    
-                    sent_cache.add(uid)
-                    _log("OTP", f"SMS DITERIMA [{num}] → {clean_otp}", Fore.GREEN)
+                    uid = hashlib.md5(f"{num}-{sms_text}".encode()).hexdigest()
+                    if uid in sent_cache:
+                        continue
 
-        except Exception as e:
-            pass
-        time.sleep(0.5)
+                    matches = _OTP_RE.findall(sms_text)
+                    if matches:
+                        clean_otp = re.sub(r"\D", "", matches[0])
+                        
+                        # Send to Telegram
+                        msg = build_otp_message(clean_otp, "🇭🇳", "HN", num)
+                        tg_send_otp(clean_otp, msg)
+                        
+                        sent_cache.add(uid)
+                        _log("OTP", f"SMS DITERIMA [{num}] → {clean_otp}", Fore.GREEN)
 
+            except Exception as e:
+                pass
+            time.sleep(0.3)
+                              
 def worker_loop(acc):
     while True:
         try:
