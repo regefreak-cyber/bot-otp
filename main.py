@@ -1,27 +1,26 @@
 """
-SPIDERMAT OTP BOT — FORWARD & TARGETED HYBRID MODE
-- Membaca cookie dari cookie.json -> poll IVAS -> forward OTP ke Telegram.
-- Mendukung Upload File .TXT & Command (/addnum, /listnum, /clearnum) untuk nomor target.
-- Command grup: /addbot, /removebot, /listbot.
+SPIDERMAT OTP BOT — FORWARD MODE
+Baca cookie dari cookie.json → poll IVAS → forward OTP ke Telegram.
+Command: /addbot /removebot /listbot
 """
 
-import os
+import httpx
+from bs4 import BeautifulSoup
 import re
-import sys
-import json
-import time
-import signal
-import hashlib
-import threading
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
+import time
+import threading
+import json
+import os
+import hashlib
+import signal
+import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-import httpx
 import requests
 import phonenumbers
 from phonenumbers import geocoder
-from bs4 import BeautifulSoup
 from colorama import init, Fore, Style
 
 sys.stdout.reconfigure(line_buffering=True)
@@ -31,9 +30,10 @@ init(autoreset=True)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # CONFIG
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-BOT_TOKEN    = os.getenv("BOT_TOKEN", "")
+BOT_TOKEN    = os.getenv("BOT_TOKEN", "")   # wajib diset via env var
 OWNER_ID     = int(os.getenv("OWNER_ID", "0"))
 
+# Grup default yang SELALU menerima OTP (tetap ada meskipun tidak /addbot)
 DEFAULT_TARGET = -1003686221386
 
 CHANNEL_LINK = "https://t.me/matttttcha"
@@ -41,12 +41,10 @@ NUMBER_LINK  = "https://t.me/matttttcha"
 
 COOKIE_FILE        = "cookie.json"
 CACHE_FILE         = "file/sent_cache.json"
-GROUPS_FILE        = "file/groups.json"
-TARGET_NUMS_FILE = "file/target_numbers.json"
-
+GROUPS_FILE        = "file/groups.json"     # daftar grup tambahan via /addbot
 MAX_CACHE          = 2000
 POLL_INTERVAL_MAX  = 12.0
-KEEPALIVE_INTERVAL = 480
+KEEPALIVE_INTERVAL = 480    # detik — ping /portal tiap 8 menit
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # LOGGING
@@ -81,53 +79,7 @@ def _log(tag, msg, color=Fore.CYAN):
     print(color + f"  {ts}  {label}  {msg}" + Style.RESET_ALL, flush=True)
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# TARGET NUMBERS MANAGEMENT (.TXT & JSON)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-_target_nums_lock = threading.Lock()
-_active_numbers: dict = {}
-
-def load_target_numbers():
-    os.makedirs("file", exist_ok=True)
-    if not os.path.exists(TARGET_NUMS_FILE):
-        return
-    try:
-        with open(TARGET_NUMS_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-            if isinstance(data, dict):
-                with _target_nums_lock:
-                    _active_numbers.update(data)
-        _log("NUM", f"Berhasil memuat {len(_active_numbers)} nomor target.", Fore.GREEN)
-    except Exception as e:
-        _log("NUM", f"Error load target numbers: {e}", Fore.RED)
-
-def save_target_numbers():
-    try:
-        os.makedirs("file", exist_ok=True)
-        with _target_nums_lock:
-            data = dict(_active_numbers)
-        with open(TARGET_NUMS_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2)
-    except Exception as e:
-        _log("NUM", f"Error save target numbers: {e}", Fore.RED)
-
-def add_target_number(num_str: str) -> bool:
-    clean_num = re.sub(r"\D", "", str(num_str))
-    if len(clean_num) < 6:
-        return False
-    with _target_nums_lock:
-        if clean_num not in _active_numbers:
-            _active_numbers[clean_num] = {"added_at": time.time()}
-            save_target_numbers()
-            return True
-    return False
-
-def clear_target_numbers():
-    with _target_nums_lock:
-        _active_numbers.clear()
-        save_target_numbers()
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# WORKER POOL
+# WORKER POOL  (proxy fallback jika kena rate-limit)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 WORKER_POOL = [
     "https://plain-butterfly-d9e9.kicenivas.workers.dev",
@@ -140,7 +92,7 @@ _worker_lock          = threading.Lock()
 _active_worker_idx    = 0
 _worker_limited_until = {}
 _last_log_limit_time  = 0
-WORKER_LIMIT_COOLDOWN = 900
+WORKER_LIMIT_COOLDOWN = 900   # 15 menit
 
 def get_base():
     with _worker_lock:
@@ -261,11 +213,11 @@ def get_recv_csrf(acc, _retry=0) -> str:
     return acc.get("csrf_token", "")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# IVAS API
+# IVAS API  (ranges / numbers / sms)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-_ranges_cache     = {}
-_ranges_429_until = {}
-RANGES_CACHE_TTL  = 300
+_ranges_cache     = {}   # idx -> (ts, list)
+_ranges_429_until = {}   # idx -> ts
+RANGES_CACHE_TTL  = 300  # 5 menit
 
 def _recv_headers(base):
     return {
@@ -286,38 +238,34 @@ def get_ranges(acc, _retry=0):
     today         = datetime.now().strftime("%Y-%m-%d")
     csrf          = get_recv_csrf(acc)
     worker_before = base
-    try:
-        r = acc["session"].post(
-            f"{base}/portal/sms/received/getsms",
-            data={"_token": csrf, "from": today, "to": today},
-            headers=_recv_headers(base),
-        )
-        if is_worker_blocked(r) and _retry < len(WORKER_POOL) - 1:
-            mark_worker_limited(worker_before)
-            return get_ranges(acc, _retry + 1)
-        if r.status_code == 429:
-            _ranges_429_until[idx] = now + 180
-            entry = _ranges_cache.get(idx)
-            _log("RANGE", f"akun #{idx} — 429, cooldown 3 menit, pakai cache lama", Fore.YELLOW)
-            return entry[1] if entry else []
-        if "/login" in str(r.url):
-            return []
-        soup   = BeautifulSoup(r.text, "html.parser")
-        ranges = []
-        for div in soup.find_all("div", onclick=True):
-            if "toggleRange" in div["onclick"]:
-                try:
-                    ranges.append(div["onclick"].split("'")[1])
-                except:
-                    pass
-        result = list(set(ranges))
-        _ranges_429_until.pop(idx, None)
-        if result:
-            _ranges_cache[idx] = (now, result)
-        return result
-    except Exception:
+    r = acc["session"].post(
+        f"{base}/portal/sms/received/getsms",
+        data={"_token": csrf, "from": today, "to": today},
+        headers=_recv_headers(base),
+    )
+    if is_worker_blocked(r) and _retry < len(WORKER_POOL) - 1:
+        mark_worker_limited(worker_before)
+        return get_ranges(acc, _retry + 1)
+    if r.status_code == 429:
+        _ranges_429_until[idx] = now + 180
         entry = _ranges_cache.get(idx)
+        _log("RANGE", f"akun #{idx} — 429, cooldown 3 menit, pakai cache lama", Fore.YELLOW)
         return entry[1] if entry else []
+    if "/login" in str(r.url):
+        return []
+    soup   = BeautifulSoup(r.text, "html.parser")
+    ranges = []
+    for div in soup.find_all("div", onclick=True):
+        if "toggleRange" in div["onclick"]:
+            try:
+                ranges.append(div["onclick"].split("'")[1])
+            except:
+                pass
+    result = list(set(ranges))
+    _ranges_429_until.pop(idx, None)
+    if result:
+        _ranges_cache[idx] = (now, result)
+    return result
 
 def get_ranges_cached(acc):
     idx  = acc["idx"]
@@ -394,6 +342,7 @@ def get_sms(acc, rng, number, _retry=0):
     except Exception as e:
         _log("SMS", f"parse error: {e}", Fore.RED)
     return list(dict.fromkeys(sms_texts))
+    
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # PLATFORM DETECTION
@@ -463,6 +412,7 @@ def normalize_number(num: str, country_code: str) -> str:
 def mask_phone(number: str) -> str:
     return str(number)
 
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # MESSAGE BUILDER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -476,6 +426,7 @@ def build_otp_message(
 ) -> str:
     raw_num = re.sub(r"\D", "", str(masked_num))
 
+    # Masking nomor telepon & tebelin
     if len(raw_num) >= 8:
         phone_formatted = f"<b>{raw_num[:4]}•SPDRMT•{raw_num[-4:]}</b>"
     else:
@@ -488,7 +439,7 @@ def build_otp_message(
         f"\n"
         f"<b>Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>"
     )
-
+    
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # SENT CACHE
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -641,11 +592,11 @@ def tg_send_otp(otp: str, msg_text: str):
     else:
         with ThreadPoolExecutor(max_workers=min(8, len(targets)), thread_name_prefix="tgsend") as pool:
             list(pool.map(_send_one, targets))
-
+            
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# COMMAND & FILE HANDLER
+# COMMAND HANDLER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-def handle_command_and_files(update: dict):
+def handle_command(update: dict):
     msg = update.get("message") or update.get("edited_message")
     if not msg:
         return
@@ -654,101 +605,69 @@ def handle_command_and_files(update: dict):
     chat_id   = chat.get("id")
     chat_type = chat.get("type", "")
     chat_name = chat.get("title") or chat.get("username") or str(chat_id)
+    user      = msg.get("from", {})
+    user_id   = user.get("id", 0)
     text      = (msg.get("text") or "").strip()
-    doc       = msg.get("document")
 
-    # 1. UPLOAD FILE .TXT
-    if doc:
-        file_name = doc.get("file_name", "")
-        if file_name.endswith(".txt"):
-            file_id = doc.get("file_id")
-            tg_send_msg(chat_id, "⏳ <i>Mendownload & memproses file nomor...</i>")
-            try:
-                r = _tg_session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}").json()
-                file_path = r.get("result", {}).get("file_path")
-                file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
-                content  = _tg_session.get(file_url).text
-                
-                added_count = 0
-                for line in content.splitlines():
-                    num_clean = re.sub(r"\D", "", line.strip())
-                    if len(num_clean) >= 6:
-                        if add_target_number(num_clean):
-                            added_count += 1
-
-                tg_send_msg(chat_id, f"✅ <b>BERHASIL!</b>\nBerhasil menambahkan <b>{added_count}</b> nomor dari <code>{file_name}</code>.")
-                _log("NUM", f"Sukses tambah {added_count} nomor dari {file_name}", Fore.GREEN)
-            except Exception as e:
-                tg_send_msg(chat_id, f"❌ Gagal memproses file: {e}")
-                _log("NUM", f"Error parse file: {e}", Fore.RED)
-        return
-
-    # 2. COMMANDS
     cmd = text.split()[0].split("@")[0].lower() if text.startswith("/") else ""
 
-    if cmd in ("/start", "/help"):
-        tg_send_msg(chat_id,
-            "🕷 <b>SPIDERMAT OTP BOT AKTIF!</b>\n\n"
-            "Gunakan bot ini untuk monitor OTP otomatis:\n"
-            "• Kirim file <code>.txt</code> berisi nomor untuk menambahkan stok pemantauan.\n"
-            "• <code>/addnum 628xxx</code> - Tambah 1 nomor manual\n"
-            "• <code>/listnum</code> - Lihat total & daftar nomor dipantau\n"
-            "• <code>/clearnum</code> - Hapus semua nomor dipantau\n"
-            "• <code>/addbot</code> - Daftarkan grup ini untuk kirim OTP\n"
-            "• <code>/removebot</code> - Hapus grup ini dari penerima OTP\n"
-            "• <code>/listbot</code> - Cek daftar grup aktif"
-        )
-
-    elif cmd == "/addnum":
-        parts = text.split()
-        if len(parts) > 1:
-            num = re.sub(r"\D", "", parts[1])
-            if add_target_number(num):
-                tg_send_msg(chat_id, f"✅ Nomor <code>{num}</code> ditambahkan ke pemantauan.")
-            else:
-                tg_send_msg(chat_id, "⚠️ Nomor tidak valid atau sudah ada.")
-        else:
-            tg_send_msg(chat_id, "Format salah. Gunakan: <code>/addnum 628xxx</code>")
-
-    elif cmd == "/listnum":
-        with _target_nums_lock:
-            total = len(_active_numbers)
-            nums  = list(_active_numbers.keys())[:20]
-        preview = "\n".join([f"• <code>{n}</code>" for n in nums]) if nums else "<i>Belum ada nomor spesifik di-upload. Bot memantau semua nomor range.</i>"
-        tg_send_msg(chat_id, f"📱 <b>TOTAL NOMOR KHUSUS DIPANTAU: {total}</b>\n\n{preview}\n\n<i>(Menampilkan max 20 nomor)</i>")
-
-    elif cmd == "/clearnum":
-        clear_target_numbers()
-        tg_send_msg(chat_id, "🗑️ Semua daftar nomor terpantau berhasil dibersihkan!")
-
-    elif cmd == "/addbot":
+    if cmd == "/addbot":
         if chat_type not in ("group", "supergroup"):
-            tg_send_msg(chat_id, "⚠️ Perintah ini hanya bisa digunakan di grup.")
+            tg_send_msg(chat_id,
+                "⚠️ <b>Perintah ini hanya bisa digunakan di dalam grup.</b>\n"
+                "Tambahkan bot ke grup, lalu ketik <code>/addbot</code> di grup tersebut.")
             return
 
         if add_group(chat_id):
             _log("GROUP", f"✅ ditambahkan: {chat_name} ({chat_id})", Fore.GREEN)
-            tg_send_msg(chat_id, f"✅ <b>Grup {chat_name} terdaftar!</b> OTP akan diteruskan ke sini.")
+            tg_send_msg(chat_id,
+                f"╔{'═' * 26}╗\n"
+                f"  ✅  <b>BOT AKTIF</b>\n"
+                f"╚{'═' * 26}╝\n"
+                f"\n"
+                f"🏠  <b>{chat_name}</b>\n"
+                f"🆔  <code>{chat_id}</code>\n"
+                f"\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"✦  Grup ini sudah terdaftar.\n"
+                f"✦  OTP akan diteruskan ke sini secara otomatis.\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"\n"
+                f"<i>Gunakan /removebot untuk menonaktifkan.</i>")
         else:
-            tg_send_msg(chat_id, f"ℹ️ Grup {chat_name} sudah terdaftar sebelumnya.")
+            tg_send_msg(chat_id,
+                f"ℹ️  <b>{chat_name}</b> sudah terdaftar sebelumnya.\n"
+                f"Bot sudah aktif di grup ini.")
 
     elif cmd == "/removebot":
         if chat_type not in ("group", "supergroup"):
             return
+
         if chat_id == DEFAULT_TARGET:
-            tg_send_msg(chat_id, "⛔ Grup utama tidak bisa dihapus.")
+            tg_send_msg(chat_id,
+                "⛔  Grup utama tidak bisa dihapus dari daftar target.")
             return
 
         if remove_group(chat_id):
-            _log("GROUP", f"🗑️ dihapus: {chat_name} ({chat_id})", Fore.YELLOW)
-            tg_send_msg(chat_id, f"🗑️ <b>{chat_name}</b> dihapus dari daftar penerima OTP.")
+            _log("GROUP", f"🗑️  dihapus: {chat_name} ({chat_id})", Fore.YELLOW)
+            tg_send_msg(chat_id,
+                f"🗑️  <b>{chat_name}</b> telah dikeluarkan dari daftar penerima OTP.\n"
+                f"Ketik /addbot untuk mendaftarkan kembali.")
         else:
-            tg_send_msg(chat_id, "ℹ️ Grup ini tidak ada di daftar.")
+            tg_send_msg(chat_id,
+                f"ℹ️  Grup ini tidak ada dalam daftar terdaftar.")
 
     elif cmd == "/listbot":
-        groups = list_groups()
-        lines  = [f"  {i+1}.  <code>{gid}</code>" for i, gid in enumerate(groups)]
-        tg_send_msg(chat_id, f"👥 <b>DAFTAR GRUP AKTIF ({len(groups)}):</b>\n\n" + "\n".join(lines))
+        groups  = list_groups()
+        lines   = [f"  {i+1}.  <code>{gid}</code>" for i, gid in enumerate(groups)]
+        total   = len(groups)
+        tg_send_msg(chat_id,
+            f"╔{'═' * 26}╗\n"
+            f"  👥  <b>DAFTAR GRUP AKTIF</b>\n"
+            f"╚{'═' * 26}╝\n"
+            f"\n"
+            + "\n".join(lines) +
+            f"\n\n<i>Total: {total} grup terdaftar</i>")
 
 def tg_update_listener():
     offset  = 0
@@ -770,7 +689,7 @@ def tg_update_listener():
             for upd in data.get("result", []):
                 offset = upd["update_id"] + 1
                 try:
-                    handle_command_and_files(upd)
+                    handle_command(upd)
                 except Exception as e:
                     _log("CMD", f"handle error: {e}", Fore.YELLOW)
 
@@ -783,7 +702,7 @@ def tg_update_listener():
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # POLL ONE ACCOUNT
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-_OTP_RE = re.compile(r"\b\d{3}[- ]?\d{3}\b|\b\d{4,8}\b")
+_OTP_RE = re.compile(r"\b\d{3}[- ]?\d{3}\b")
 
 def poll_one(acc) -> bool:
     found  = False
@@ -837,23 +756,6 @@ def poll_one(acc) -> bool:
 
         return local_found
 
-    # 1. JIKA ADA TARGET KHUSUS DARI FILE .TXT
-    with _target_nums_lock:
-        specific_targets = list(_active_numbers.keys())
-
-    if specific_targets:
-        for num in specific_targets:
-            for rng in ranges:
-                fallback_country, code = parse_range(rng)
-                try:
-                    if process_number(rng, num, fallback_country, code):
-                        found = True
-                except Exception:
-                    pass
-                time.sleep(0.2)
-        return found
-
-    # 2. JIKA FILE .TXT KOSONG -> POLL RANGE BIASA
     for rng in ranges:
         fallback_country, code = parse_range(rng)
         try:
@@ -870,12 +772,13 @@ def poll_one(acc) -> bool:
                     found = True
             except Exception as e:
                 _log("NUM", f"akun #{acc['idx']}: {e}", Fore.YELLOW)
-            time.sleep(0.4)
+            time.sleep(0.5)
 
     return found
+    
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# ACCOUNT WORKER & KEEPALIVE & HEALTH
+# ACCOUNT WORKER
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def account_worker(acc):
     sleep_time = 2.0
@@ -889,6 +792,9 @@ def account_worker(acc):
         if sleep_time > 0:
             time.sleep(sleep_time)
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# KEEPALIVE
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 _last_keepalive = {}
 
 def keepalive_worker(accounts):
@@ -920,10 +826,19 @@ def keepalive_worker(accounts):
                     mark_worker_limited(base)
 
             if not session_ok:
-                _log("KA-WARN", f"akun #{idx} — session tidak terverifikasi.", Fore.YELLOW)
+                _log(
+                    "KA-WARN",
+                    f"akun #{idx} — session tidak terverifikasi. "
+                    f"Update cookie.json & restart bot jika semua worker normal.",
+                    Fore.YELLOW,
+                )
                 if OWNER_ID and OWNER_ID != DEFAULT_TARGET:
                     try:
-                        _tg_post(OWNER_ID, f"⚠️ <b>SESSION EXPIRED</b>\nAkun #{idx} perlu update <code>cookie.json</code>.")
+                        _tg_post(OWNER_ID,
+                            f"⚠️ <b>SESSION EXPIRED</b>\n\n"
+                            f"Akun #{idx} tidak bisa akses portal IVAS.\n"
+                            f"Perbarui <code>cookie.json</code> dengan cookie fresh "
+                            f"dari browser, lalu restart bot.")
                     except:
                         pass
 
@@ -931,6 +846,9 @@ def keepalive_worker(accounts):
             time.sleep(2)
         time.sleep(60)
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# HTTP HEALTH SERVER
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 _bot_start_time = time.time()
 
 class HealthHandler(BaseHTTPRequestHandler):
@@ -967,12 +885,14 @@ def run_health_server():
     _log("SERVER", f"port {port}  |  /health  /status", Fore.CYAN)
     server.serve_forever()
 
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# GRACEFUL SHUTDOWN
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def _shutdown(signum, frame):
     _log("SHUTDOWN", "menyimpan cache & keluar...", Fore.YELLOW)
     with _sent_cache_lock:
         save_sent_cache_now(sent_cache)
     _save_groups()
-    save_target_numbers()
     _log("SHUTDOWN", "selesai.", Fore.YELLOW)
     sys.exit(0)
 
@@ -986,7 +906,7 @@ def main():
     print(Fore.CYAN + Style.BRIGHT, end="")
     print("  ╔══════════════════════════════════════╗")
     print("  ║   🕷  SPIDERMAT OTP BOT              ║")
-    print("  ║        HYBRID FORWARD MODE           ║")
+    print("  ║        FORWARD MODE                  ║")
     print("  ╚══════════════════════════════════════╝")
     print(Style.RESET_ALL)
 
@@ -995,7 +915,6 @@ def main():
         sys.exit(1)
 
     _load_groups()
-    load_target_numbers()
 
     cookies_list = load_cookies()
     if not cookies_list:
@@ -1033,7 +952,7 @@ def main():
         _log("THREAD+", f"Akun #{acc['idx']} — polling aktif", Fore.GREEN)
 
     print()
-    _log("CONFIG", "Bot berjalan. Upload file .txt atau /addbot di grup.", Fore.CYAN)
+    _log("CONFIG", "Bot berjalan. Ketik /addbot di grup untuk mendaftarkan.", Fore.CYAN)
 
     global _cache_dirty, _last_cache_save
     while True:
@@ -1044,6 +963,5 @@ def main():
             _cache_dirty     = False
         time.sleep(5)
 
-if __name__ == "__main__":
-    main()
-  
+main()
+                
