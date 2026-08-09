@@ -246,7 +246,16 @@ def handle_command_and_files(update: dict):
     # 2. HANDLE COMMANDS
     cmd = text.split()[0].lower() if text.startswith("/") else ""
 
-    if cmd == "/addnum":
+    if cmd in ("/start", "/help"):
+        tg_send_msg(chat_id, 
+            "🕷 <b>SPIDERMAT OTP BOT AKTIF!</b>\n\n"
+            "Silakan upload file <code>.txt</code> berisi daftar nomor, atau pakai command:\n"
+            "• <code>/addnum 628xxx</code> - Tambah 1 nomor manual\n"
+            "• <code>/listnum</code> - Cek daftar nomor dipantau\n"
+            "• <code>/clearnum</code> - Hapus semua stok nomor"
+        )
+
+    elif cmd == "/addnum":
         parts = text.split()
         if len(parts) > 1:
             num = re.sub(r"\D", "", parts[1])
@@ -254,12 +263,14 @@ def handle_command_and_files(update: dict):
                 tg_send_msg(chat_id, f"✅ Nomor <code>{num}</code> ditambahkan.")
             else:
                 tg_send_msg(chat_id, "⚠️ Nomor tidak valid atau sudah ada.")
+        else:
+            tg_send_msg(chat_id, "Format salah. Gunakan: <code>/addnum 628xxx</code>")
 
     elif cmd == "/listnum":
         with _target_nums_lock:
             total = len(_active_numbers)
             nums  = list(_active_numbers.keys())[:20]
-        preview = "\n".join([f"• <code>{n}</code>" for n in nums])
+        preview = "\n".join([f"• <code>{n}</code>" for n in nums]) if nums else "<i>Belum ada nomor yang di-upload.</i>"
         tg_send_msg(chat_id, f"📱 <b>TOTAL NOMOR DIPANTAU: {total}</b>\n\n{preview}\n\n<i>(Menampilkan max 20 nomor)</i>")
 
     elif cmd == "/clearnum":
@@ -365,4 +376,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
+  
