@@ -1,9 +1,8 @@
 """
 SPIDERMAT OTP BOT — TARGETED MONITORING MODE
 Command:
-  /addbot /removebot /listbot (Manajemen Grup Target)
-  /addnum /delnum /listnum /clearnum (Manajemen Nomor Terpantau)
-  Atau langsung KIRIM FILE .TXT isi nomor-nomor ke chat bot Telegram!
+  /addnum /listnum /clearnum (Manajemen Nomor Terpantau)
+  Atau kirim file .TXT berisi nomor ke bot Telegram!
 """
 
 import os
@@ -15,7 +14,6 @@ import signal
 import hashlib
 import threading
 from datetime import datetime
-from concurrent.futures import ThreadPoolExecutor
 
 import httpx
 import requests
@@ -33,12 +31,11 @@ BOT_TOKEN      = os.getenv("BOT_TOKEN", "")
 OWNER_ID       = int(os.getenv("OWNER_ID", "0"))
 DEFAULT_TARGET = -1003686221386
 
-COOKIE_FILE  = "cookie.json"
-CACHE_FILE   = "file/sent_cache.json"
-GROUPS_FILE  = "file/groups.json"
+COOKIE_FILE      = "cookie.json"
+CACHE_FILE       = "file/sent_cache.json"
 TARGET_NUMS_FILE = "file/target_numbers.json"
 
-POLL_INTERVAL = 2.0  # Jeda polling cepat karena request sangat sedikit!
+POLL_INTERVAL = 2.0
 MAX_CACHE     = 2000
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -52,7 +49,7 @@ def _log(tag, msg, color=Fore.CYAN):
 # TARGET NUMBERS MANAGEMENT (.TXT & JSON)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 _target_nums_lock = threading.Lock()
-_active_numbers: dict = {}  # format: {"628xxx": {"range": "INDONESIA (62)"}}
+_active_numbers: dict = {}
 
 def load_target_numbers():
     os.makedirs("file", exist_ok=True)
@@ -64,7 +61,7 @@ def load_target_numbers():
             if isinstance(data, dict):
                 with _target_nums_lock:
                     _active_numbers.update(data)
-        _log("NUMS", f"Berhasil memuat {len(_active_numbers)} nomor terget.", Fore.GREEN)
+        _log("NUMS", f"Berhasil memuat {len(_active_numbers)} nomor target.", Fore.GREEN)
     except Exception as e:
         _log("NUMS", f"Error load target numbers: {e}", Fore.RED)
 
@@ -115,7 +112,7 @@ def load_cookies():
         with open(COOKIE_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
             if isinstance(data, list):
-                return [{x["name"]: x["value"] for x in data}] if "name" in data[0] else data
+                return [{x["name"]: x["value"] for x in data}] if data and "name" in data[0] else data
             return [data]
     except:
         return []
@@ -135,6 +132,44 @@ def get_recv_csrf(acc) -> str:
         return meta.get("content", "") if meta else ""
     except:
         return ""
+
+_ranges_cache = {}
+RANGES_CACHE_TTL = 300
+
+def get_ranges(acc):
+    base = get_base()
+    today = datetime.now().strftime("%Y-%m-%d")
+    csrf = get_recv_csrf(acc)
+    try:
+        r = acc["session"].post(
+            f"{base}/portal/sms/received/getsms",
+            data={"_token": csrf, "from": today, "to": today},
+            headers={"X-Requested-With": "XMLHttpRequest", "Referer": f"{base}/portal/sms/received"},
+            timeout=10
+        )
+        if r.status_code != 200:
+            return []
+        soup = BeautifulSoup(r.text, "html.parser")
+        ranges = []
+        for div in soup.find_all("div", onclick=True):
+            if "toggleRange" in div["onclick"]:
+                try:
+                    ranges.append(div["onclick"].split("'")[1])
+                except:
+                    pass
+        return list(set(ranges))
+    except:
+        return []
+
+def get_ranges_cached(acc):
+    now = time.time()
+    if "data" in _ranges_cache and (now - _ranges_cache.get("ts", 0) < RANGES_CACHE_TTL):
+        return _ranges_cache["data"]
+    res = get_ranges(acc)
+    if res:
+        _ranges_cache["data"] = res
+        _ranges_cache["ts"] = now
+    return res
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # OTP & MESSAGE BUILDER
@@ -173,9 +208,6 @@ def tg_send_otp(otp: str, msg_text: str):
     except Exception as e:
         _log("TG-ERR", f"Gagal kirim OTP: {e}", Fore.RED)
 
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# FIX HANDLE FILE TXT (AUTO CLEAN & PARSE)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def handle_command_and_files(update: dict):
     msg = update.get("message") or update.get("edited_message")
     if not msg:
@@ -192,7 +224,6 @@ def handle_command_and_files(update: dict):
             file_id = doc.get("file_id")
             tg_send_msg(chat_id, "⏳ <i>Mendownload & memproses file nomor...</i>")
             try:
-                # Get File Path
                 r = _tg_session.get(f"https://api.telegram.org/bot{BOT_TOKEN}/getFile?file_id={file_id}").json()
                 file_path = r.get("result", {}).get("file_path")
                 file_url = f"https://api.telegram.org/file/bot{BOT_TOKEN}/{file_path}"
@@ -200,12 +231,7 @@ def handle_command_and_files(update: dict):
                 
                 added_count = 0
                 for line in content.splitlines():
-                    line = line.strip()
-                    if not line:
-                        continue
-                    
-                    # Bersihin nomor dari karakter non-angka
-                    num_clean = re.sub(r"\D", "", line)
+                    num_clean = re.sub(r"\D", "", line.strip())
                     if len(num_clean) >= 6:
                         if add_target_number(num_clean):
                             added_count += 1
@@ -241,15 +267,16 @@ def handle_command_and_files(update: dict):
         tg_send_msg(chat_id, "🗑️ Semua daftar nomor terpantau berhasil dibersihkan!")
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# FIX POLLING TO IVAS (DENGAN AUTODETECT RANGE)
+# POLLING TARGETED NUMBERS
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+sent_cache = set()
+
 def poll_target_numbers(acc):
     base = get_base()
     csrf = get_recv_csrf(acc)
     today = datetime.now().strftime("%Y-%m-%d")
 
-    # Ambil range aktif dulu dari iVAS biar gampang dicocokkan
-    active_ranges = get_ranges_cached(acc)
+    active_ranges = get_ranges_cached(acc) or [""]
 
     with _target_nums_lock:
         nums_to_check = list(_active_numbers.keys())
@@ -285,7 +312,6 @@ def poll_target_numbers(acc):
                     if matches:
                         clean_otp = re.sub(r"\D", "", matches[0])
                         
-                        # Send to Telegram
                         msg = build_otp_message(clean_otp, "🇭🇳", "HN", num)
                         tg_send_otp(clean_otp, msg)
                         
@@ -295,7 +321,7 @@ def poll_target_numbers(acc):
             except Exception as e:
                 pass
             time.sleep(0.3)
-                              
+
 def worker_loop(acc):
     while True:
         try:
@@ -329,10 +355,7 @@ def main():
 
     acc = {"session": make_session(cookies[0])}
 
-    # Start Telegram Updates Listener
     threading.Thread(target=tg_listener_loop, daemon=True).start()
-    
-    # Start Worker Loop
     threading.Thread(target=worker_loop, args=(acc,), daemon=True).start()
 
     _log("READY", "Bot Siap! Kirim file .txt ke Telegram bot untuk mulai memantau nomor.", Fore.GREEN)
@@ -342,4 +365,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-            
+    
