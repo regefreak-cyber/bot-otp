@@ -254,6 +254,10 @@ class RateLimited(RuntimeError):
     pass
 
 
+class PortalBlocked(RuntimeError):
+    pass
+
+
 def is_login_redirect(response: httpx.Response) -> bool:
     location = str(response.url).lower()
     if "/login" in location:
@@ -628,6 +632,12 @@ def auto_login_ivas(acc: dict[str, Any]) -> bool:
         client: httpx.Client = acc["session"]
         login_page = client.get(f"{IVAS_BASE_URL}/login", timeout=10.0)
         if is_cloudflare_or_blocked(login_page):
+            _log(
+                "AUTH",
+                f"akun #{acc['idx']} login ditahan Cloudflare "
+                f"(HTTP {login_page.status_code})",
+                Fore.YELLOW,
+            )
             return False
 
         token = _extract_csrf(login_page.text)
@@ -643,6 +653,12 @@ def auto_login_ivas(acc: dict[str, Any]) -> bool:
         if response.status_code in (401, 403) or is_login_redirect(response):
             return False
         if is_cloudflare_or_blocked(response):
+            _log(
+                "AUTH",
+                f"akun #{acc['idx']} login ditahan Cloudflare "
+                f"(HTTP {response.status_code})",
+                Fore.YELLOW,
+            )
             return False
 
         acc["csrf_token"] = _extract_csrf(response.text) or token
@@ -696,7 +712,19 @@ def ivas_request(
             _sleep(delay)
             continue
 
+        if is_cloudflare_or_blocked(response):
+            raise PortalBlocked(
+                f"akun #{acc['idx']} portal ditahan Cloudflare "
+                f"(HTTP {response.status_code}, URL {response.url})"
+            )
+
         if response.status_code in (401, 403) or is_login_redirect(response):
+            _log(
+                "AUTH",
+                f"akun #{acc['idx']} ditolak: HTTP {response.status_code}, "
+                f"URL {response.url}",
+                Fore.YELLOW,
+            )
             if auth_retry and auto_login_ivas(acc):
                 return ivas_request(
                     acc,
@@ -841,11 +869,14 @@ def poll_one(acc: dict[str, Any]) -> bool:
     found = False
     try:
         ranges = get_ranges_cached(acc)
-    except (SessionExpired, RateLimited) as exc:
+    except (SessionExpired, RateLimited, PortalBlocked) as exc:
         _log("RANGE", str(exc), Fore.YELLOW)
+        key = f"portal:{acc['idx']}"
+        clear_system_alert(f"session:{acc['idx']}")
         system_alert_once(
-            f"session:{acc['idx']}",
-            f"⚠️ <b>IVAS session gagal</b>\nAkun #{acc['idx']} tidak bisa diperbarui otomatis.",
+            key,
+            f"⚠️ <b>IVAS portal tidak bisa diakses</b>\n"
+            f"Akun #{acc['idx']}: <code>{esc(exc)}</code>",
         )
         return False
     except Exception as exc:
@@ -862,10 +893,11 @@ def poll_one(acc: dict[str, Any]) -> bool:
 
         try:
             sms_list = get_sms(acc, rng, number)
-        except SessionExpired:
+        except (SessionExpired, PortalBlocked):
             system_alert_once(
-                f"session:{acc['idx']}",
-                f"⚠️ <b>IVAS session gagal</b>\nAkun #{acc['idx']} tidak bisa diperbarui otomatis.",
+                f"portal:{acc['idx']}",
+                f"⚠️ <b>IVAS portal tidak bisa diakses</b>\n"
+                f"Akun #{acc['idx']} cek cookie, domain, dan Cloudflare.",
             )
             return False
         except Exception as exc:
@@ -903,10 +935,11 @@ def poll_one(acc: dict[str, Any]) -> bool:
         fallback_country, country_code = parse_range(rng)
         try:
             numbers = get_numbers(acc, rng)
-        except SessionExpired:
+        except (SessionExpired, PortalBlocked):
             system_alert_once(
-                f"session:{acc['idx']}",
-                f"⚠️ <b>IVAS session gagal</b>\nAkun #{acc['idx']} tidak bisa diperbarui otomatis.",
+                f"portal:{acc['idx']}",
+                f"⚠️ <b>IVAS portal tidak bisa diakses</b>\n"
+                f"Akun #{acc['idx']} cek cookie, domain, dan Cloudflare.",
             )
             continue
         except Exception as exc:
@@ -961,12 +994,24 @@ def keepalive_worker(accounts: list[dict[str, Any]]) -> None:
                 if response.status_code < 400 and not is_login_redirect(response):
                     _recv_csrf_cache.pop(idx, None)
                     clear_system_alert(f"session:{idx}")
+                    clear_system_alert(f"portal:{idx}")
                     _log("KA-OK", f"akun #{idx} session aktif", Fore.GREEN)
-            except SessionExpired:
+            except PortalBlocked as exc:
+                _log("KA-WARN", str(exc), Fore.YELLOW)
+                system_alert_once(
+                    f"portal:{idx}",
+                    f"⚠️ <b>IVAS ACCESS BLOCKED</b>\n"
+                    f"Akun #{idx} terkena challenge/403 dari portal. "
+                    f"Cookie browser bisa terikat ke IP atau sesi browser.",
+                )
+            except SessionExpired as exc:
+                _log("KA-WARN", str(exc), Fore.YELLOW)
                 _log("KA-WARN", f"akun #{idx} session expired", Fore.YELLOW)
                 system_alert_once(
                     f"session:{idx}",
-                    f"⚠️ <b>SESSION EXPIRED</b>\nAkun #{idx} gagal auto-login. Cek IVAS_USERNAME/IVAS_PASSWORD.",
+                    f"⚠️ <b>IVAS SESSION / ACCESS ERROR</b>\n"
+                    f"Akun #{idx} gagal akses portal. Cek cookie, domain, "
+                    f"Cloudflare, atau IVAS_USERNAME/IVAS_PASSWORD.",
                 )
             except Exception as exc:
                 _log("KA-ERR", f"akun #{idx}: {exc}", Fore.YELLOW)
@@ -1023,6 +1068,7 @@ def handle_command(update: dict[str, Any]) -> None:
 
 def tg_update_listener() -> None:
     offset = 0
+    conflict_count = 0
     _log("CMD", "update listener aktif", Fore.CYAN)
     while True:
         try:
@@ -1036,8 +1082,22 @@ def tg_update_listener() -> None:
                 retries=2,
             )
             if not data.get("ok"):
-                _sleep(1.0)
+                description = str(data.get("description", ""))
+                if "Conflict" in description:
+                    conflict_count += 1
+                    wait = min(60.0, 5.0 * conflict_count)
+                    _log(
+                        "CMD",
+                        "Telegram Conflict: ada instance lain memakai token "
+                        f"(percobaan {conflict_count}, retry {wait:.0f}s)",
+                        Fore.RED,
+                    )
+                    _sleep(wait)
+                else:
+                    conflict_count = 0
+                    _sleep(1.0)
                 continue
+            conflict_count = 0
             for update in data.get("result", []):
                 offset = int(update["update_id"]) + 1
                 try:
