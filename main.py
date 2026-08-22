@@ -36,8 +36,8 @@ OWNER_ID     = int(os.getenv("OWNER_ID", "0"))
 # Grup default yang SELALU menerima OTP (tetap ada meskipun tidak /addbot)
 DEFAULT_TARGET = -1003686221386
 
-CHANNEL_LINK = "https://t.me/matchaappp"
-NUMBER_LINK  = "https://t.me/matchaappp"
+CHANNEL_LINK = "https://t.me/matttttcha"
+NUMBER_LINK  = "https://t.me/matttttcha"
 
 COOKIE_FILE        = "cookie.json"
 CACHE_FILE         = "file/sent_cache.json"
@@ -418,51 +418,26 @@ def mask_phone(number: str) -> str:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 def build_otp_message(
     otp: str,
-    sms_text: str,
+    svc: dict,
+    flag: str,
     country: str,
+    region_code: str,
     masked_num: str,
-    code: str,
-    svc: dict = None,
-    *args,
-    **kwargs
 ) -> str:
-    # 1. Cleaning isi SMS
-    if isinstance(sms_text, dict):
-        clean_sms = str(sms_text.get("text", "")).replace("<#>", "").strip()
-    else:
-        clean_sms = str(sms_text).replace("<#>", "").strip()
-
-    # 2. Ambil angka murni
     raw_num = re.sub(r"\D", "", str(masked_num))
-    
-    # 3. Auto-detect negara berdasarkan kode nomor HP
-    detected_country = "Unknown"
-    try:
-        parsed_num = phonenumbers.parse(f"+{raw_num}")
-        # Ambil nama negara dalam bahasa Inggris (misal: "Togo", "Nepal", "Indonesia")
-        detected_country = geocoder.country_name_for_number(parsed_num, "en") or country
-    except Exception:
-        detected_country = country if country else "Unknown"
 
-    # 4. Ambil 3 digit prefix/range
-    prefix = raw_num[:3] if len(raw_num) >= 3 else raw_num
-    
-    # 5. Format sensor tengah dengan 'SPDRMT'
-    if len(raw_num) > 7:
-        formatted_num = f"{raw_num[:4]}SPDRMT{raw_num[-3:]}"
-    elif len(raw_num) > 4:
-        formatted_num = f"{raw_num[:3]}SPDRMT{raw_num[-2:]}"
+    # Masking nomor telepon & tebelin
+    if len(raw_num) >= 8:
+        phone_formatted = f"<b>{raw_num[:4]}•SPDRMT•{raw_num[-4:]}</b>"
     else:
-        formatted_num = raw_num
+        phone_formatted = f"<b>{raw_num}</b>"
 
-    # 6. Icon layanan
-    icon_svc = svc.get("icon", "💬") if isinstance(svc, dict) else "💬"
+    prefix = raw_num[:6] if len(raw_num) >= 6 else raw_num
 
-    # Format Tampilan
     return (
-        f"⭐ <b>SPDRMT</b> {icon_svc} | <b>+{formatted_num}</b> 📌 <b>{prefix}</b> | ❯\n"
-        f"{detected_country}\n"
-        f"<blockquote>{clean_sms}</blockquote>"
+        f"¤ {flag} <b>{region_code}</b> ¤ {phone_formatted} ¤\n"
+        f"\n"
+        f"<b>Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>"
     )
     
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -603,13 +578,8 @@ def tg_send_msg(chat_id: int, text: str):
 def tg_send_otp(otp: str, msg_text: str):
     kb = {
         "inline_keyboard": [
-            [
-                {"text": "🌐 Channel ↗", "url": "https://t.me/matchaappp"},
-                {"text": f"🔑 📋 {otp}", "copy_text": {"text": otp}}
-            ],
-            [
-                {"text": "📞 Get Number ↗", "url": "https://t.me/matchaappp"}
-            ]
+            [{"text": f"{otp}", "copy_text": {"text": otp}}],
+            [{"text": "All Files", "url": "https://t.me/matchaappp"}],
         ]
     }
     targets = list_groups()
@@ -622,7 +592,6 @@ def tg_send_otp(otp: str, msg_text: str):
     else:
         with ThreadPoolExecutor(max_workers=min(8, len(targets)), thread_name_prefix="tgsend") as pool:
             list(pool.map(_send_one, targets))
-            
             
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # COMMAND HANDLER
