@@ -422,19 +422,36 @@ def build_otp_message(
     country: str,
     masked_num: str,
     code: str,
+    svc: dict = None,
     *args,
     **kwargs
 ) -> str:
+    # 1. Cleaning isi SMS
     if isinstance(sms_text, dict):
         clean_sms = str(sms_text.get("text", "")).replace("<#>", "").strip()
     else:
         clean_sms = str(sms_text).replace("<#>", "").strip()
 
+    # 2. Ambil angka murni
     raw_num = re.sub(r"\D", "", str(masked_num))
+    
+    # 3. Ambil 3 digit prefix/range
     prefix = raw_num[:3] if len(raw_num) >= 3 else raw_num
+    
+    # 4. Format sensor tengah dengan 'SPDRMT' (Depan 4 digit, Belakang 3 digit)
+    if len(raw_num) > 7:
+        formatted_num = f"{raw_num[:4]}SPDRMT{raw_num[-3:]}"
+    elif len(raw_num) > 4:
+        formatted_num = f"{raw_num[:3]}SPDRMT{raw_num[-2:]}"
+    else:
+        formatted_num = raw_num
 
+    # 5. Icon layanan
+    icon_svc = svc.get("icon", "💬") if isinstance(svc, dict) else "💬"
+
+    # Format Tampilan
     return (
-        f"🌐 <b>TG1</b> 🟢 | <b>+{raw_num}</b> 📌 <b>{prefix}</b> | ❯\n"
+        f"⭐ <b>{MESSAGE_TAG}</b> {icon_svc} | <b>+{formatted_num}</b> 📌 <b>{prefix}</b> | ❯\n"
         f"{country}\n"
         f"<blockquote>{clean_sms}</blockquote>"
     )
