@@ -425,7 +425,6 @@ def build_otp_message(
     *args,
     **kwargs
 ) -> str:
-    # Antisipasi jika sms_text berupa dict atau bukan string
     if isinstance(sms_text, dict):
         clean_sms = str(sms_text.get("text", "")).replace("<#>", "").strip()
     else:
@@ -435,7 +434,7 @@ def build_otp_message(
     prefix = raw_num[:3] if len(raw_num) >= 3 else raw_num
 
     return (
-        f"🌐 <b>{MESSAGE_TAG}</b> 🟢 | <b>+{raw_num}</b> SPDRMT <b>{prefix}</b> | ❯\n"
+        f"🌐 <b>TG1</b> 🟢 | <b>+{raw_num}</b> 📌 <b>{prefix}</b> | ❯\n"
         f"{country}\n"
         f"<blockquote>{clean_sms}</blockquote>"
     )
