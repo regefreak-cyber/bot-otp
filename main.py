@@ -435,10 +435,19 @@ def build_otp_message(
     # 2. Ambil angka murni
     raw_num = re.sub(r"\D", "", str(masked_num))
     
-    # 3. Ambil 3 digit prefix/range
+    # 3. Auto-detect negara berdasarkan kode nomor HP
+    detected_country = "Unknown"
+    try:
+        parsed_num = phonenumbers.parse(f"+{raw_num}")
+        # Ambil nama negara dalam bahasa Inggris (misal: "Togo", "Nepal", "Indonesia")
+        detected_country = geocoder.country_name_for_number(parsed_num, "en") or country
+    except Exception:
+        detected_country = country if country else "Unknown"
+
+    # 4. Ambil 3 digit prefix/range
     prefix = raw_num[:3] if len(raw_num) >= 3 else raw_num
     
-    # 4. Format sensor tengah dengan 'SPDRMT' (Depan 4 digit, Belakang 3 digit)
+    # 5. Format sensor tengah dengan 'SPDRMT'
     if len(raw_num) > 7:
         formatted_num = f"{raw_num[:4]}SPDRMT{raw_num[-3:]}"
     elif len(raw_num) > 4:
@@ -446,13 +455,13 @@ def build_otp_message(
     else:
         formatted_num = raw_num
 
-    # 5. Icon layanan
+    # 6. Icon layanan
     icon_svc = svc.get("icon", "💬") if isinstance(svc, dict) else "💬"
 
     # Format Tampilan
     return (
-        f"⭐ <b>{MESSAGE_TAG}</b> {icon_svc} | <b>+{formatted_num}</b> 📌 <b>{prefix}</b> | ❯\n"
-        f"{country}\n"
+        f"⭐ <b>SPDRMT</b> {icon_svc} | <b>+{formatted_num}</b> 📌 <b>{prefix}</b> | ❯\n"
+        f"{detected_country}\n"
         f"<blockquote>{clean_sms}</blockquote>"
     )
     
