@@ -36,8 +36,8 @@ OWNER_ID     = int(os.getenv("OWNER_ID", "0"))
 # Grup default yang SELALU menerima OTP (tetap ada meskipun tidak /addbot)
 DEFAULT_TARGET = -1003686221386
 
-CHANNEL_LINK = "https://t.me/matttttcha"
-NUMBER_LINK  = "https://t.me/matttttcha"
+CHANNEL_LINK = "https://t.me/matchaappp"
+NUMBER_LINK  = "https://t.me/matchaappp"
 
 COOKIE_FILE        = "cookie.json"
 CACHE_FILE         = "file/sent_cache.json"
@@ -572,11 +572,11 @@ def tg_send_otp(otp: str, msg_text: str):
     kb = {
         "inline_keyboard": [
             [
-                {"text": "🌐 Channel ↗", "url": https://t.me/matchaappp},
+                {"text": "🌐 Channel ↗", "url": "https://t.me/matchaappp"},
                 {"text": f"🔑 📋 {otp}", "copy_text": {"text": otp}}
             ],
             [
-                {"text": "📞 Get Number ↗", "url": https://t.me/matchaappp}
+                {"text": "📞 Get Number ↗", "url": "https://t.me/matchaappp"}
             ]
         ]
     }
@@ -590,6 +590,7 @@ def tg_send_otp(otp: str, msg_text: str):
     else:
         with ThreadPoolExecutor(max_workers=min(8, len(targets)), thread_name_prefix="tgsend") as pool:
             list(pool.map(_send_one, targets))
+            
             
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # COMMAND HANDLER
