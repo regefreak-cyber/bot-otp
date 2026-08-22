@@ -421,14 +421,15 @@ def build_otp_message(
     sms_text: str,
     country: str,
     masked_num: str,
-    code: str
+    code: str,
+    svc: dict = None
 ) -> str:
     raw_num = re.sub(r"\D", "", str(masked_num))
     prefix = raw_num[:3] if len(raw_num) >= 3 else raw_num
     clean_sms = sms_text.replace("<#>", "").strip()
 
     return (
-        f"🌐 <b>{MESSAGE_TAG}</b> 🟢 | <b>+{raw_num}</b> 📌 <b>{prefix}</b> | ❯\n"
+        f"🌐 <b>{MESSAGE_TAG}</b> 🟢 | <b>+{raw_num}</b> SPDRMT <b>{prefix}</b> | ❯\n"
         f"{country}\n"
         f"<blockquote>{clean_sms}</blockquote>"
     )
