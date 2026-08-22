@@ -428,7 +428,7 @@ def build_otp_message(
 
     # Masking nomor telepon & tebelin
     if len(raw_num) >= 8:
-        phone_formatted = f"<b>{raw_num[:4]}•SPDRMT•{raw_num[-4:]}</b>"
+        phone_formatted = f"<b>{raw_num[:4]}•👻•{raw_num[-4:]}</b>"
     else:
         phone_formatted = f"<b>{raw_num}</b>"
 
