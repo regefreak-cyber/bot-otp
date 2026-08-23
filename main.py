@@ -423,21 +423,24 @@ def build_otp_message(
     country: str,
     region_code: str,
     masked_num: str,
+    sms_text: str = ""
 ) -> str:
     raw_num = re.sub(r"\D", "", str(masked_num))
 
     # Masking nomor telepon & tebelin
     if len(raw_num) >= 8:
-        phone_formatted = f"<b>{raw_num[:4]}•👻•{raw_num[-4:]}</b>"
+        phone_formatted = f"<b>{raw_num[:4]}•SPDRMT•{raw_num[-4:]}</b>"
     else:
         phone_formatted = f"<b>{raw_num}</b>"
 
     prefix = raw_num[:6] if len(raw_num) >= 6 else raw_num
+    clean_sms = sms_text.replace("<#>", "").strip()
 
+    # Baris 1: Header, Baris 2: Prefix, Baris 3: Isi SMS
     return (
         f"¤ {flag} <b>{region_code}</b> ¤ {phone_formatted} ¤\n"
-        f"\n"
-        f"<b>Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>"
+        f"<b>Prefix:</b> <tg-spoiler>{prefix}</tg-spoiler>\n"
+        f"<blockquote>{clean_sms}</blockquote>"
     )
     
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -742,7 +745,7 @@ def poll_one(acc) -> bool:
             country, flag, region_code = detect_country_and_flag(full_num, fallback_country)
             masked                    = mask_phone(full_num)
 
-            msg = build_otp_message(otp, svc, flag, country, region_code, masked)
+            msg = build_otp_message(otp, svc, flag, country, region_code, masked, clean)
             tg_send_otp(otp, msg)
             cache_add(uid)
 
