@@ -578,23 +578,43 @@ def _tg_post(chat_id, text, reply_markup=None, retries=3):
 def tg_send_msg(chat_id: int, text: str):
     _tg_post(chat_id, text)
 
-def tg_send_otp(otp: str, msg_text: str):
-    kb = {
-        "inline_keyboard": [
-            [{"text": f"📩 {otp}", "pay": True}],
-            [{"text": "All Files", "url": "https://t.me/matchaappp"}],
-        ]
-    }
-    targets = list_groups()
+PAYMENT_TOKEN = "1877036958:TEST:ca4fe555be8f4ef829d60f0e13b5b3df15a5697b"
 
+def tg_send_otp(otp: str, msg_text: str):
+    targets = list_groups()
+    
     def _send_one(cid):
-        _tg_post(cid, msg_text, reply_markup=kb)
+        payload = {
+            "chat_id": cid,
+            "title": f"📩 OTP: {otp}",
+            "description": msg_text,
+            "payload": f"otp_{otp}",
+            "provider_token": PAYMENT_TOKEN,
+            "currency": "IDR",
+            "prices": [{"label": "OTP", "amount": 10000}],  # Formalitas syarat API
+            "reply_markup": {
+                "inline_keyboard": [
+                    # Tombol 1: Berwarna Hijau
+                    [{"text": f"📩 {otp}", "pay": True}],
+                    # Tombol 2: Berwarna Biru
+                    [{"text": "All Files", "url": "https://t.me/matchaappp"}]
+                ]
+            }
+        }
+        
+        # Kirim ke endpoint sendInvoice
+        _tg_session.post(
+            f"https://api.telegram.org/bot{BOT_TOKEN}/sendInvoice",
+            json=payload,
+            timeout=10
+        )
 
     if len(targets) == 1:
         _send_one(targets[0])
     else:
-        with ThreadPoolExecutor(max_workers=min(8, len(targets)), thread_name_prefix="tgsend") as pool:
+        with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
             list(pool.map(_send_one, targets))
+            
             
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # COMMAND HANDLER
