@@ -581,7 +581,7 @@ def tg_send_msg(chat_id: int, text: str):
 def tg_send_otp(otp: str, msg_text: str):
     kb = {
         "inline_keyboard": [
-            [{"text": f"{otp}", "copy_text": {"text": otp}}],
+            [{"text": f"📩 {otp}", "pay": True}],
             [{"text": "All Files", "url": "https://t.me/matchaappp"}],
         ]
     }
