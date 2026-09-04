@@ -578,22 +578,45 @@ def _tg_post(chat_id, text, reply_markup=None, retries=3):
 def tg_send_msg(chat_id: int, text: str):
     _tg_post(chat_id, text)
 
+from concurrent.futures import ThreadPoolExecutor
+
 def tg_send_otp(otp: str, msg_text: str):
     kb = {
         "inline_keyboard": [
-            [{"text": f"📩 {otp}", "copy_text": {"text": otp}}],
-            [{"text": "All Files", "url": "https://t.me/matchaappp"}]
+            [
+                {
+                    "text": f"📩 {otp}",
+                    "copy_text": {
+                        "text": otp
+                    },
+                    "style": "primary"
+                }
+            ],
+            [
+                {
+                    "text": "📁 All Files",
+                    "url": "https://t.me/matchaappp",
+                    "style": "success"
+                }
+            ]
         ]
     }
+
     targets = list_groups()
 
     def _send_one(cid):
-        _tg_post(cid, msg_text, reply_markup=kb)
+        _tg_post(
+            cid,
+            msg_text,
+            reply_markup=kb
+        )
 
     if len(targets) == 1:
         _send_one(targets[0])
-    else:
-        with ThreadPoolExecutor(max_workers=min(8, len(targets))) as pool:
+    elif targets:
+        with ThreadPoolExecutor(
+            max_workers=min(8, len(targets))
+        ) as pool:
             list(pool.map(_send_one, targets))
             
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
